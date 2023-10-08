@@ -1,0 +1,12 @@
+# runtime typechecking
+beartype
+typeguard<3
+jaxtyping
+
+# tools
+equinox
+jax
+jaxlib
+
+# testing
+pytest
