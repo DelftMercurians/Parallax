@@ -2,13 +2,13 @@ import equinox as eqx
 import jax
 from jax import numpy as jnp
 
+from ._abstract_shapes import AbstractConvexShape
 from ._geometry_utils import (
     fast_normal,
     is_point_in_triangle,
     minkowski_diff,
     random_direction,
 )
-from ._shapes import AbstractConvexShape
 
 
 @eqx.filter_jit
