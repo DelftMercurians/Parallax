@@ -1,1 +1,4 @@
-**__py_cache__**
+**/__pycache__
+*.egg-info
+*.vscode
+.all_objects.cache

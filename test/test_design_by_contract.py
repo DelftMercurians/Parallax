@@ -111,3 +111,43 @@ def test_both_conditions_jax_jit():
 
     with pytest.raises((RuntimeError, ValueError)):
         f(jnp.array(0.0), jnp.array(10.0))
+
+
+def _test_function_2(f):
+    wf = lambda x: f(jnp.array(x))
+
+    wf(2.0)
+    wf(-5.0)
+    wf(15.0)
+
+    with pytest.raises((RuntimeError, ValueError)):
+        wf(0.0)
+        wf(1.0)
+        wf(0.7)
+
+
+def test_post_with_input_no_jit():
+    @post_condition((lambda out, inp: out > inp), provide_input=True)
+    def f(x):
+        return x * x
+
+    with pytest.warns(UserWarning):
+        _test_function_2(f)
+
+
+def test_post_with_input_eqx_jit():
+    @eqx.filter_jit
+    @post_condition((lambda out, inp: out > inp), provide_input=True)
+    def f(x):
+        return x * x
+
+    _test_function_2(f)
+
+
+def test_post_with_input_jax_jit():
+    @jax.jit
+    @post_condition((lambda out, inp: out > inp), provide_input=True)
+    def f(x):
+        return x * x
+
+    _test_function_2(f)

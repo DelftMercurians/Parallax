@@ -6,20 +6,6 @@ from jax import numpy as jnp
 # partly inspired by https://stackoverflow.com/questions/12151182/python-precondition-postcondition-for-member-function-how # noqa: E501
 
 
-def post_condition(condition):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            retval = func(*args, **kwargs)
-            retval = eqx.error_if(
-                retval, jnp.logical_not(condition(retval)), "Post condition failed"
-            )
-            return retval
-
-        return wrapper
-
-    return decorator
-
-
 def pre_condition(condition):
     def decorator(func):
         def wrapper(*args, **kwargs):
@@ -31,6 +17,28 @@ def pre_condition(condition):
             )
 
             retval = func(*args, **kwargs)
+            return retval
+
+        return wrapper
+
+    return decorator
+
+
+def post_condition(condition, provide_input=False):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            retval = func(*args, **kwargs)
+            if provide_input:
+                retval = eqx.error_if(
+                    retval,
+                    jnp.logical_not(condition(retval, *args, **kwargs)),
+                    "Post condition failed",
+                )
+            else:
+                retval = eqx.error_if(
+                    retval, jnp.logical_not(condition(retval)), "Post condition failed"
+                )
+
             return retval
 
         return wrapper
