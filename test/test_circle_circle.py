@@ -2,7 +2,8 @@ import equinox as eqx
 import jax
 from jax import numpy as jnp, random as jr
 
-from cotix._shapes import _get_collision_simplex as gcs, Circle
+from cotix._gjk import get_collision_simplex as gcs
+from cotix._shapes import Circle
 
 
 def test_circle_circle():
