@@ -20,6 +20,7 @@ def _test_function(f):
         wf(-42, -42)
 
 
+@pytest.mark.filterwarnings("ignore")
 def test_post_condition_no_jit():
     @post_condition(lambda out: out >= 5)
     def f(a, b):
@@ -46,6 +47,7 @@ def test_post_condition_eqx_jit():
     _test_function(f)
 
 
+@pytest.mark.filterwarnings("ignore")
 def test_pre_condition_no_jit():
     @pre_condition(lambda a, b: a >= 1)
     def f(a, b):
@@ -72,6 +74,7 @@ def test_pre_condition_eqx_jit():
     _test_function(f)
 
 
+@pytest.mark.filterwarnings("ignore")
 def test_both_conditions_no_jit():
     @post_condition(lambda out: out >= 5)
     @pre_condition(lambda a, b: a >= 1)
@@ -123,6 +126,7 @@ def _test_function_2(f):
         wf(0.7)
 
 
+@pytest.mark.filterwarnings("ignore")
 def test_post_with_input_no_jit():
     @post_condition((lambda out, inp: out > inp), provide_input=True)
     def f(x):
