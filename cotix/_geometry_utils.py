@@ -1,6 +1,8 @@
+import equinox as eqx
 from jax import numpy as jnp, random as jr
+from jaxtyping import Array, Float
 
-from ._shapes import AbstractConvexShape
+from ._abstract_shapes import AbstractConvexShape
 
 
 def is_point_in_triangle(pt, v1, v2, v3):
@@ -32,3 +34,15 @@ def random_direction(key):
 
 def minkowski_diff(A: AbstractConvexShape, B: AbstractConvexShape, direction):
     return A._get_support(direction) - B._get_support(-direction)
+
+
+def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:
+    relative_vertices = vertices - jnp.mean(vertices, axis=0)
+    relative_vertices = eqx.error_if(
+        relative_vertices,
+        relative_vertices == jnp.zeros((2,)),
+        "Encountered zero in order clockwise, cannot handle for now",
+    )  # TODO: solve this
+    angles = jnp.arctan2(relative_vertices[:, 1], relative_vertices[:, 0])
+    indices = jnp.argsort(angles, axis=0)
+    return vertices[indices]
