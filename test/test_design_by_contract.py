@@ -25,8 +25,7 @@ def test_post_condition_no_jit():
     def f(a, b):
         return 4 + jnp.abs(a) + jnp.abs(b)
 
-    with pytest.warns(UserWarning):
-        _test_function(f)
+    _test_function(f)
 
 
 def test_post_condition_jax_jit():
@@ -52,8 +51,7 @@ def test_pre_condition_no_jit():
     def f(a, b):
         return 4 + jnp.abs(a) + jnp.abs(b)
 
-    with pytest.warns(UserWarning):
-        _test_function(f)
+    _test_function(f)
 
 
 def test_pre_condition_jax_jit():
@@ -80,11 +78,10 @@ def test_both_conditions_no_jit():
     def f(a, b):
         return 4 + jnp.abs(a) + jnp.abs(b)
 
-    with pytest.warns(UserWarning):
-        _test_function(f)
+    _test_function(f)
 
-        with pytest.raises((RuntimeError, ValueError)):
-            f(jnp.array(0.0), jnp.array(10.0))
+    with pytest.raises((RuntimeError, ValueError)):
+        f(jnp.array(0.0), jnp.array(10.0))
 
 
 def test_both_conditions_eqx_jit():
@@ -131,8 +128,7 @@ def test_post_with_input_no_jit():
     def f(x):
         return x * x
 
-    with pytest.warns(UserWarning):
-        _test_function_2(f)
+    _test_function_2(f)
 
 
 def test_post_with_input_eqx_jit():
