@@ -1,15 +1,14 @@
-import equinox as eqx
 import jax
 from jax import numpy as jnp, random as jr
 
-from cotix._gjk import get_collision_simplex as gcs
+from cotix._collisions import check_for_collision, compute_penetration_vector
 from cotix._shapes import Circle, Polygon
 
 
 def test_circle_vs_circle():
     key = jr.PRNGKey(0)
+    jr.PRNGKey(3)
 
-    @eqx.filter_jit
     def f(key):
         key1, key2, key3, key4 = jr.split(key, 4)
         pa = jr.uniform(key1, (2,)) * 4 - 2
@@ -21,20 +20,35 @@ def test_circle_vs_circle():
         b = Circle(rb, pb)
 
         true_no_collision = jnp.sum((pa - pb) ** 2) > (ra + rb) ** 2
+        true_shift = -jnp.sqrt(jnp.sum((pa - pb) ** 2)) + (ra + rb)
 
-        res_no_collision = jnp.all(gcs(a, b, key) == jnp.zeros((3, 2)))
-        return true_no_collision == res_no_collision
+        res_collision, simplex = check_for_collision(a, b, key)
+        res_no_collision = ~res_collision
+        res_shift = compute_penetration_vector(a, b, simplex)
 
-    N = 100000
+        def _c1(_):
+            return true_no_collision == res_no_collision
+
+        def _c2(pa):
+            first_cond = true_no_collision == res_no_collision
+
+            # second condition is that it is approximately closest shift
+            second_cond = jnp.absolute(true_shift - jnp.linalg.norm(res_shift)) < 1e-2
+            return first_cond & second_cond
+
+        return jax.lax.cond(true_no_collision, _c1, _c2, pa)
+
+    N = 10000
+    keys = jr.split(key, N)
     f = jax.jit(jax.vmap(f))
-    out = f(jr.split(key, N))
+    out = f(keys)
     assert jnp.all(out)
 
 
 def test_rect_vs_rect():
     key = jr.PRNGKey(0)
 
-    def f(key):
+    def f(key, flag=jnp.array(False)):
         key1, key2, key3, key4, key = jr.split(key, 5)
 
         min1 = jr.uniform(key1, (2,)) * 4 - 2
@@ -52,7 +66,7 @@ def test_rect_vs_rect():
         )
 
         min2 = jr.uniform(key3, (2,)) * 4 - 2
-        w2, h2 = jr.uniform(key4, (2,)) * 2
+        w2, h2 = jr.uniform(key4, (2,)) * 2 + 0.01
 
         b = Polygon(
             jnp.array(
@@ -76,11 +90,17 @@ def test_rect_vs_rect():
             | is_first_above_second
             | is_first_right_second
         )
-        res_no_collision = jnp.all(gcs(a, b, key) == jnp.zeros((3, 2)))
 
-        return res_no_collision == true_no_collision
+        res_collision, simplex = check_for_collision(a, b, key)
+        penetration = compute_penetration_vector(a, b, simplex)
+        penetration = jnp.absolute(penetration)
 
-    N = 100000
-    f = jax.jit(jax.vmap(f))
+        c1 = res_collision != true_no_collision
+        c2 = c1 & ((penetration[0] < 1e-5) | (penetration[1] < 1e-5))
+        return jax.lax.cond(true_no_collision, lambda: c1, lambda: c2)
+
+    N = 10000
+    f = jax.vmap(f)
     out = f(jr.split(key, N))
+
     assert jnp.all(out)
