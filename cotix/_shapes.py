@@ -26,7 +26,7 @@ class Circle(AbstractConvexShape, strict=True):
     position: Float[Array, "2"]
 
     def _get_support(self, direction: Float[Array, "2"]):
-        normalized_direction = direction / jnp.sqrt(jnp.sum(direction**2))
+        normalized_direction = direction / jnp.linalg.norm(direction)
         return normalized_direction * self.radius + self.position
 
     def get_center(self):
