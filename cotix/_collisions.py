@@ -1,26 +1,30 @@
 import equinox as eqx
 import jax
-from jax import numpy as jnp
+from jax import numpy as jnp, random as jr
 
 from ._abstract_shapes import AbstractConvexShape
 from ._geometry_utils import (
     fast_normal,
+    HomogenuousTransformer,
     is_point_in_triangle,
     minkowski_diff,
     random_direction,
 )
 
 
-def _get_collision_simplex(A: AbstractConvexShape, B: AbstractConvexShape, key):
+def _get_collision_simplex(
+    A: AbstractConvexShape, B: AbstractConvexShape, key, trA, trB
+):
     # make the algorithm ''randomized'' -> probability of problems = 0
     # TODO: test weird cases; use the direction between centers as the starting one
+    # TODO: fix breaking (nans) when key = None
     initial_direction = random_direction(key)
 
     # setup simplex
     simplex = jnp.zeros((3, 2))
     # .at[0] inside jit is inplace -> no performance hit
-    simplex = simplex.at[0].set(minkowski_diff(A, B, initial_direction))
-    simplex = simplex.at[1].set(minkowski_diff(A, B, -simplex[0]))
+    simplex = simplex.at[0].set(minkowski_diff(A, trA, B, trB, initial_direction))
+    simplex = simplex.at[1].set(minkowski_diff(A, trA, B, trB, -simplex[0]))
 
     def reverse_simplex(simplex, direction):
         tmp = simplex[0]
@@ -43,7 +47,7 @@ def _get_collision_simplex(A: AbstractConvexShape, B: AbstractConvexShape, key):
     )
 
     # the last point is computed only after we have correct direction
-    c = minkowski_diff(A, B, direction)
+    c = minkowski_diff(A, trA, B, trB, direction)
     simplex = simplex.at[2].set(c)
 
     # lax while loop:
@@ -64,7 +68,9 @@ def _get_collision_simplex(A: AbstractConvexShape, B: AbstractConvexShape, key):
             lambda *_: (simplex.at[0].set(c), cb_normal),
         )
 
-        c = minkowski_diff(A, B, direction)  # get the point in the new direction
+        c = minkowski_diff(
+            A, trA, B, trB, direction
+        )  # get the point in the new direction
         simplex = simplex.at[2].set(c)
 
         # pack back to the same shape
@@ -101,7 +107,7 @@ def _get_collision_simplex(A: AbstractConvexShape, B: AbstractConvexShape, key):
 
 
 def _get_closest_minkowski_diff(
-    A: AbstractConvexShape, B: AbstractConvexShape, simplex, solver_iterations
+    A: AbstractConvexShape, B: AbstractConvexShape, simplex, solver_iterations, trA, trB
 ):
     # EPA (expanding polytope algorithm) forces us to have 'dynamic size' arrays.
     # JAX does not support dynamic size arrays. But we can cheat, as per usual, and just
@@ -111,6 +117,7 @@ def _get_closest_minkowski_diff(
     # we don't care, so it should be fiiiiiine
     # BTW, we are going to store edges, not vertices, since ordering is a bitch
 
+    # TODO: handle correctly bad initial simplex (like, 3 points on one line, etc)
     solver_iterations = eqx.error_if(
         solver_iterations,
         solver_iterations < 3,
@@ -173,7 +180,7 @@ def _get_closest_minkowski_diff(
         normal = normal / (
             jnp.absolute(normal[0]) + jnp.absolute(normal[1])
         )  # TODO: remove this renormalization
-        new_point = minkowski_diff(A, B, normal)
+        new_point = minkowski_diff(A, trA, B, trB, normal)
         # lets replace current edge with edge[0], new point:
         edges = edges.at[best_edge_index].set(jnp.array([best_edge[0], new_point]))
         # and insert in the end new_point, edge[1]
@@ -204,8 +211,14 @@ def _get_closest_minkowski_diff(
 
 
 # Now, lets define the functions that are available to users
-def check_for_collision(A: AbstractConvexShape, B: AbstractConvexShape, key=None):
-    simplex = _get_collision_simplex(A, B, key)
+def check_for_collision(
+    A: AbstractConvexShape,
+    B: AbstractConvexShape,
+    key=jr.PRNGKey(1),
+    trA=HomogenuousTransformer(),
+    trB=HomogenuousTransformer(),
+):
+    simplex = _get_collision_simplex(A, B, key, trA, trB)
     return jax.lax.cond(
         jnp.all(simplex == jnp.zeros_like(simplex)),
         lambda: (False, jnp.nan * simplex),
@@ -214,9 +227,14 @@ def check_for_collision(A: AbstractConvexShape, B: AbstractConvexShape, key=None
 
 
 def compute_penetration_vector(
-    A: AbstractConvexShape, B: AbstractConvexShape, simplex, solver_iterations=48
+    A: AbstractConvexShape,
+    B: AbstractConvexShape,
+    simplex,
+    solver_iterations=48,
+    trA=HomogenuousTransformer(),
+    trB=HomogenuousTransformer(),
 ):
     penetration = _get_closest_minkowski_diff(
-        A, B, simplex, solver_iterations=solver_iterations
+        A, B, simplex, solver_iterations, trA, trB
     )  # TODO: Decrease this value to 32
     return penetration

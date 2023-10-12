@@ -5,6 +5,9 @@ from jaxtyping import Array, Float
 from ._abstract_shapes import AbstractConvexShape
 
 
+# TODO: write docstrings
+
+
 def is_point_in_triangle(pt, v1, v2, v3):
     def sign(p1, p2, p3):
         return (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1])
@@ -32,8 +35,8 @@ def random_direction(key):
     return x / jnp.linalg.norm(x)
 
 
-def minkowski_diff(A: AbstractConvexShape, B: AbstractConvexShape, direction):
-    return A._get_support(direction) - B._get_support(-direction)
+def minkowski_diff(A: AbstractConvexShape, trA, B: AbstractConvexShape, trB, direction):
+    return A._get_support(direction, trA) - B._get_support(-direction, trB)
 
 
 def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:
@@ -46,3 +49,32 @@ def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:
     angles = jnp.arctan2(relative_vertices[:, 1], relative_vertices[:, 0])
     indices = jnp.argsort(angles, axis=0)
     return vertices[indices]
+
+
+class HomogenuousTransformer(eqx.Module, strict=True):
+    matrix: Float[Array, "3 3"]
+    inv_matrix: Float[Array, "3 3"]
+
+    def __init__(self, matrix=jnp.eye(3)):
+        self.matrix = matrix
+        self.inv_matrix = jnp.linalg.pinv(matrix)
+
+    def inverse_direction(self, x):
+        homo_dir = jnp.array([x[0], x[1], 0.0])
+        transformed = self.inv_matrix @ homo_dir
+        return jnp.array([transformed[0], transformed[1]])
+
+    def forward_direction(self, x):
+        homo_dir = jnp.array([x[0], x[1], 0.0])
+        transformed = self.matrix @ homo_dir
+        return jnp.array([transformed[0], transformed[1]])
+
+    def inverse_vector(self, x):
+        homo_dir = jnp.array([x[0], x[1], 1.0])
+        transformed = self.inv_matrix @ homo_dir
+        return jnp.array([transformed[0], transformed[1]]) / transformed[2]
+
+    def forward_vector(self, x):
+        homo_dir = jnp.array([x[0], x[1], 1.0])
+        transformed = self.matrix @ homo_dir
+        return jnp.array([transformed[0], transformed[1]]) / transformed[2]
