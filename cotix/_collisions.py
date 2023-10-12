@@ -161,7 +161,7 @@ def _get_closest_minkowski_diff(
         c2 = (
             jnp.cross(last_edge[0], last_edge[1]) > 0
         )  # TODO: add more conditions, since this one is unstable af
-        c3 = (jnp.sum((last_edge - prev_edge) ** 2) > 1e-8) | (index < 3)
+        c3 = jnp.sum((last_edge - prev_edge) ** 2) > 1e-7
         return c1 & c2 & c3
 
     def body_fn(x):
@@ -192,7 +192,7 @@ def _get_closest_minkowski_diff(
     best_edge, best_point, _, i, edges, prev_best_edge = eqx.internal.while_loop(
         cond_fn,
         body_fn,
-        (edge, edge[0], index, jnp.array(0), edges, edge),
+        (edge, edge[0], index, jnp.array(0), edges, jnp.zeros((2, 2))),
         kind="checkpointed",
         max_steps=solver_iterations,
     )
