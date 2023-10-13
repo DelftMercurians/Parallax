@@ -61,15 +61,13 @@ class AbstractBody(eqx.Module, strict=True):
         return eqx.tree_at(lambda x: x.inertia, self, inertia)
 
     def set_position(self, position):
-        new_self = eqx.tree_at(lambda x: x._transform, self, None)
-        return eqx.tree_at(lambda x: x.position, new_self, position)
+        return eqx.tree_at(lambda x: x.position, self, position)
 
     def set_velocity(self, velocity):
         return eqx.tree_at(lambda x: x.velocity, self, velocity)
 
     def set_angle(self, angle):
-        new_self = eqx.tree_at(lambda x: x._transform, self, None)
-        return eqx.tree_at(lambda x: x.angle, new_self, angle)
+        return eqx.tree_at(lambda x: x.angle, self, angle)
 
     def set_angular_velocity(self, angular_velocity):
         return eqx.tree_at(lambda x: x.angular_velocity, self, angular_velocity)
