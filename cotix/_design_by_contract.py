@@ -44,3 +44,36 @@ def post_condition(condition, provide_input=False):
         return wrapper
 
     return decorator
+
+
+def _check_invariant(func, invariant):
+    def wrapper(*args, **kwargs):
+        checked_self = eqx.error_if(
+            args[0],
+            invariant(args[0]),
+            "Invariant failed! That is kinda bad. Probably nan"
+            " or invalid value encountered in the checked class.",
+        )
+        retval = func(checked_self, *(args[1:]), **kwargs)
+        return retval
+
+    return wrapper
+
+
+def _check_all_annotations(instance):
+    res = True
+    for x in type(instance).__annotations__.items():
+        print(f"checked {x}")
+        res &= isinstance(getattr(instance, x[0]), x[1])
+    return res
+
+
+def class_invariant(cls):
+    invariant = lambda instance: getattr(cls, "__invariant__")(
+        instance
+    ) & _check_all_annotations(instance)
+    for name in dir(cls):
+        if name.startswith("_"):
+            continue
+        setattr(cls, name, _check_invariant(getattr(cls, name), invariant))
+    return cls

@@ -55,9 +55,22 @@ class HomogenuousTransformer(eqx.Module, strict=True):
     matrix: Float[Array, "3 3"]
     inv_matrix: Float[Array, "3 3"]
 
-    def __init__(self, matrix=jnp.eye(3)):
-        self.matrix = matrix
-        self.inv_matrix = jnp.linalg.pinv(matrix)
+    position: Float[Array, "2"]
+    angle: Float[Array, ""]
+
+    def __init__(self, position=jnp.array([0.0, 0.0]), angle=jnp.array(0.0)):
+        self.position = position
+        self.angle = angle
+
+        self.matrix = jnp.array(
+            [
+                [jnp.cos(self.angle), -jnp.sin(self.angle), self.position[0]],
+                [jnp.sin(self.angle), jnp.cos(self.angle), self.position[1]],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+
+        self.inv_matrix = jnp.linalg.pinv(self.matrix)
 
     def inverse_direction(self, x):
         homo_dir = jnp.array([x[0], x[1], 0.0])
