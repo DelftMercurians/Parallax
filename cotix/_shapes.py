@@ -17,7 +17,7 @@ class CompositeShape(AbstractShape, strict=True):
             is_leaf=lambda node: isinstance(node, AbstractShape),
         )
 
-    def _get_support(self):
+    def _get_local_support(self, direction, tr):
         raise NotImplementedError
 
 
@@ -25,7 +25,7 @@ class Circle(AbstractConvexShape, strict=True):
     radius: Float[Array, ""]
     position: Float[Array, "2"]
 
-    def _get_support(self, direction: Float[Array, "2"]):
+    def _get_local_support(self, direction: Float[Array, "2"]):
         normalized_direction = direction / jnp.linalg.norm(direction)
         return normalized_direction * self.radius + self.position
 
@@ -39,8 +39,10 @@ class Polygon(AbstractConvexShape, strict=True):
     def __init__(self, vertices: Float[Array, "size 2"]) -> Float[Array, "2"]:
         self.vertices = order_clockwise(vertices)
         # TODO: error if passed vertices cannot form a convex polygon
+        # TODO: error if not ordered after ordereing
+        # TODO: error if two vertices
 
-    def _get_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
+    def _get_local_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
         dot_products = jax.lax.map(lambda x: jnp.dot(x, direction), self.vertices)
         return self.vertices.at[jnp.argmax(dot_products)].get()
 
@@ -64,7 +66,7 @@ class AABB(AbstractConvexShape, strict=True):
         self.min = jnp.stack([x_min, y_min])
         self.max = jnp.stack([x_max, y_max])
 
-    def _get_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
+    def _get_local_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
         vertices = jnp.stack(
             [min, jnp.stack([min[0], max[1]]), max, jnp.stack([min[0], max[1]])]
         )
