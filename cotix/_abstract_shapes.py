@@ -1,10 +1,18 @@
 import abc
+from typing import Callable
 
 import equinox as eqx
+from jaxtyping import Array, Float
+
+
+# type of the support function: takes a vector, returns a vector
+# useful as a shorthand for type annotations
+SupportFn = Callable[[Float[Array, "2"]], Float[Array, "2"]]
 
 
 class AbstractShape(eqx.Module, strict=True):
-    def _get_support(self, direction, tr):
+    @abc.abstractmethod
+    def get_support(self, direction):
         """
         Computes a support vector of a shape. Support vector is simply
         the farthest point in a particular direction. This does not include any
@@ -22,16 +30,10 @@ class AbstractShape(eqx.Module, strict=True):
         Furthest point of the shape in the given direction.
 
         """
-        local_direction = tr.inverse_direction(direction)
-        local_support = self._get_local_support(local_direction)
-        return tr.forward_vector(local_support)
-
-    @abc.abstractmethod
-    def _get_local_support(self, direction):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_center(self):
+    def _get_center(self):
         """
         Returns an approximate central point of the shape. It is computed as middle of
         an axis-aligned bounding box.
