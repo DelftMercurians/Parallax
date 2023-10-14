@@ -2,7 +2,7 @@ import jax
 from jax import numpy as jnp, random as jr
 
 from cotix._collisions import check_for_collision, compute_penetration_vector
-from cotix._shapes import Circle, Polygon
+from cotix._shapes import AABB, Circle, Polygon
 
 
 def test_circle_vs_circle():
@@ -49,6 +49,7 @@ def test_rect_vs_rect():
     key = jr.PRNGKey(0)
 
     def f(key, flag=jnp.array(False)):
+        # todo: afaiu, this is only for axis aligned rectangles
         key1, key2, key3, key4, key = jr.split(key, 5)
 
         min1 = jr.uniform(key1, (2,)) * 4 - 2
@@ -93,6 +94,62 @@ def test_rect_vs_rect():
 
         res_collision, simplex = check_for_collision(a, b, key)
         penetration = compute_penetration_vector(a, b, simplex)
+        penetration = jnp.absolute(penetration)
+
+        c1 = res_collision != true_no_collision
+        c2 = c1 & ((penetration[0] < 1e-5) | (penetration[1] < 1e-5))
+        return jax.lax.cond(true_no_collision, lambda: c1, lambda: c2)
+
+    N = 10000
+    f = jax.vmap(f)
+    out = f(jr.split(key, N))
+
+    assert jnp.all(out)
+
+
+def test_aabb_vs_aabb():
+    key = jr.PRNGKey(0)
+
+    def f(key, flag=jnp.array(False)):
+        key1, key2, key3, key4, key = jr.split(key, 5)
+
+        min1 = jr.uniform(key1, (2,)) * 4 - 2
+        w1, h1 = jr.uniform(key2, (2,)) * 2
+        max1 = min1 + jnp.array([w1, h1])
+        shape1 = Polygon(
+            jnp.array(
+                [
+                    min1,
+                    jnp.array([min1[0] + w1, min1[1]]),
+                    jnp.array([min1[0] + w1, min1[1] + h1]),
+                    jnp.array([min1[0], min1[1] + h1]),
+                ]
+            )
+        )
+
+        aabb1 = AABB(shape1)
+
+        center2 = jr.uniform(key3, (2,)) * 4 - 2
+        r2 = jr.uniform(key4, ()) * 2 + 1e-2
+
+        shape2 = Circle(r2, center2)
+
+        aabb2 = AABB(shape2)
+
+        is_first_below_second = max1[1] < center2[1] - r2
+        is_first_above_second = center2[1] + r2 < min1[1]
+        is_first_left_second = max1[0] < center2[0] - r2
+        is_first_right_second = center2[0] + r2 < min1[0]
+
+        true_no_collision = (
+            is_first_below_second
+            | is_first_left_second
+            | is_first_above_second
+            | is_first_right_second
+        )
+
+        res_collision, simplex = check_for_collision(aabb1, aabb2, key)
+        penetration = compute_penetration_vector(aabb1, aabb2, simplex)
         penetration = jnp.absolute(penetration)
 
         c1 = res_collision != true_no_collision
