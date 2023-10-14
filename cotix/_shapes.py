@@ -4,7 +4,7 @@ from jax import numpy as jnp, tree_util as jtu
 from jaxtyping import Array, Float
 
 from ._abstract_shapes import AbstractConvexShape, AbstractShape
-from ._geometry_utils import order_clockwise
+from ._geometry_utils import HomogenuousTransformer, order_clockwise
 
 
 class CompositeShape(AbstractShape, strict=True):
@@ -36,7 +36,7 @@ class Circle(AbstractConvexShape, strict=True):
 class Polygon(AbstractConvexShape, strict=True):
     vertices: Float[Array, "size 2"]  # ordered clockwise
 
-    def __init__(self, vertices: Float[Array, "size 2"]) -> Float[Array, "2"]:
+    def __init__(self, vertices: Float[Array, "size 2"]):
         self.vertices = order_clockwise(vertices)
         # TODO: error if passed vertices cannot form a convex polygon
         # TODO: error if not ordered after ordereing
@@ -55,10 +55,10 @@ class AABB(AbstractConvexShape, strict=True):
     max: Float[Array, "2"]
 
     def __init__(self, shape: AbstractShape):
-        x_min = shape._get_support(jnp.array([-1.0, 0.0]))[0]
-        y_min = shape._get_support(jnp.array([0.0, -1.0]))[1]
-        x_max = shape._get_support(jnp.array([1.0, 0.0]))[0]
-        y_max = shape._get_support(jnp.array([0.0, 1.0]))[1]
+        x_min = shape._get_support(jnp.array([-1.0, 0.0]), HomogenuousTransformer())[0]
+        y_min = shape._get_support(jnp.array([0.0, -1.0]), HomogenuousTransformer())[1]
+        x_max = shape._get_support(jnp.array([1.0, 0.0]), HomogenuousTransformer())[0]
+        y_max = shape._get_support(jnp.array([0.0, 1.0]), HomogenuousTransformer())[1]
 
         x_max = eqx.error_if(x_max, x_max <= x_min, "AABB is invalid")
         y_max = eqx.error_if(y_max, y_max <= y_min, "AABB is invalid")
@@ -67,11 +67,8 @@ class AABB(AbstractConvexShape, strict=True):
         self.max = jnp.stack([x_max, y_max])
 
     def _get_local_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
-        vertices = jnp.stack(
-            [min, jnp.stack([min[0], max[1]]), max, jnp.stack([min[0], max[1]])]
-        )
-        dot_products = jax.lax.map(lambda x: jnp.dot(x, direction), self.vertices)
-        return vertices.at[jnp.argmax(dot_products)].get()
+        support_point = jnp.where(direction >= 0, self.max, self.min)
+        return support_point
 
     def get_center(self):
         return (self.min + self.max) / 2.0
