@@ -19,7 +19,7 @@ class AbstractBody(eqx.Module, strict=True):
     velocity: AbstractVar[Float[Array, "2"]]
 
     angle: AbstractVar[Float[Array, ""]]
-    angular_velocity: AbstractVar[Float[Array, "2"]]
+    angular_velocity: AbstractVar[Float[Array, ""]]
 
     shape: AbstractVar[AbstractShape]
     _transform: AbstractVar[HomogenuousTransformer]
@@ -102,17 +102,17 @@ class Ball(AbstractBody, strict=True):
     velocity: Float[Array, "2"]
 
     angle: Float[Array, ""]
-    angular_velocity: Float[Array, "2"]
+    angular_velocity: Float[Array, ""]
 
     shape: AbstractShape
     _transform: HomogenuousTransformer
 
     def __init__(self):
-        self.mass = 1.0
-        self.inertia = 1.0
+        self.mass = jnp.array(1.0)
+        self.inertia = jnp.array(1.0)
         self.position = jnp.zeros((2,))
         self.velocity = jnp.zeros((2,))
-        self.angle = 0
-        self.angular_velocity = 0
+        self.angle = jnp.array(0.0)
+        self.angular_velocity = jnp.array(0.0)
         self.shape = Circle(0.05, jnp.zeros((2,)))
         self._transform = HomogenuousTransformer()
