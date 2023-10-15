@@ -215,7 +215,7 @@ def _get_closest_minkowski_diff(
 
 
 # Now, lets define the functions that are available to users
-def check_for_collision(
+def check_for_collision_convex(
     support_A: SupportFn,
     support_B: SupportFn,
     initial_direction=random_direction(jr.PRNGKey(1)),
@@ -228,7 +228,7 @@ def check_for_collision(
     )
 
 
-def compute_penetration_vector(
+def compute_penetration_vector_convex(
     support_A: SupportFn,
     support_B: SupportFn,
     simplex: Float[Array, "3 2"],
