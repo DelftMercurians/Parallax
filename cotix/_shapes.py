@@ -22,8 +22,8 @@ class CompositeShape(AbstractShape, strict=True):
 
 
 class Circle(AbstractConvexShape, strict=True):
-    radius: Float[Array, ""]
-    position: Float[Array, "2"]
+    radius: Float[Array, ""] = eqx.field(converter=jnp.asarray)
+    position: Float[Array, "2"] = eqx.field(converter=jnp.asarray)
 
     def get_support(self, direction: Float[Array, "2"]):
         normalized_direction = direction / jnp.linalg.norm(direction)

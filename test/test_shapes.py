@@ -11,7 +11,8 @@ def test_rect_support_vectors():
                 [1, -1],
                 [1, 1],
                 [-1, 1],
-            ]
+            ],
+            dtype=jnp.float32,
         )
     )
     assert jnp.all(rect1._get_center() == jnp.array([0, 0]))
@@ -24,7 +25,8 @@ def test_rect_support_vectors():
                 [2, 1],
                 [2, 2],
                 [1, 2],
-            ]
+            ],
+            dtype=jnp.float32,
         )
     )
     assert jnp.all(rect2._get_center() == jnp.array([1.5, 1.5]))
