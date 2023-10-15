@@ -5,8 +5,11 @@ import jaxlib
 import pytest
 
 from cotix._bodies import Ball
-from cotix._collisions import check_for_collision, compute_penetration_vector
-from cotix._shapes import AABB, Circle, Polygon
+from cotix._collisions import (
+    check_for_collision_convex,
+    compute_penetration_vector_convex,
+)
+from cotix._convex_shapes import AABB, Circle, Polygon
 
 
 typefailed = beartype.roar.BeartypeCallHintParamViolation
@@ -24,9 +27,9 @@ def test_bad_types_shapes():
 
 def test_bad_types_collision():
     with pytest.raises(typefailed):
-        check_for_collision(1, 2)
+        check_for_collision_convex(1, 2)
     with pytest.raises(typefailed):
-        compute_penetration_vector("asdf", "lol")
+        compute_penetration_vector_convex("asdf", "lol")
 
 
 def test_bad_types_bodies_with_invariant():

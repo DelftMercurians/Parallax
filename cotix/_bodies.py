@@ -3,11 +3,9 @@ import jax.numpy as jnp
 from equinox import AbstractVar
 from jaxtyping import Array, Float
 
-from ._abstract_shapes import AbstractShape
-from ._collisions import check_for_collision
+from ._convex_shapes import Circle
 from ._design_by_contract import class_invariant
-from ._geometry_utils import HomogenuousTransformer
-from ._shapes import Circle
+from ._universal_shape import UniversalShape
 
 
 @class_invariant
@@ -21,65 +19,37 @@ class AbstractBody(eqx.Module, strict=True):
     angle: AbstractVar[Float[Array, ""]]
     angular_velocity: AbstractVar[Float[Array, ""]]
 
-    shape: AbstractVar[AbstractShape]
-    _transform: AbstractVar[HomogenuousTransformer]
+    shape: AbstractVar[UniversalShape]
 
     def update_transform(self):
-        """
-        Construct a matrix that transforms shape in the correct configuration.
-        While we could do it smarter, like cache the results somehow or whatever,
-        we don't do that. Cuz, in theory, caching results is worse for complex shapes
-        """
-
         return eqx.tree_at(
-            lambda x: x._transform,
+            lambda x: x.shape,
             self,
-            replace=HomogenuousTransformer(position=self.position, angle=self.angle),
+            self.shape.update_transform(angle=self.angle, position=self.position),
         )
 
-    def get_transform(self):
-        return eqx.error_if(
-            self._transform,
-            (~jnp.all(self._transform.angle == self.angle))
-            | (~jnp.all(self._transform.position == self.position)),
-            "Call update_transform on a Body, before "
-            "doing any smart other things with it.",
-        )
+    def collides_with(self, other):
+        return self.shape.collides_with(other.shape)
 
-    def get_global_support(self, direction):
-        """
-        Computes a support vector in a global coordinate system.
-        """
-        self._transform.inverse_direction(direction)
-        local_support = self.shape.get_support(direction)
-        return self._transform.forward_vector(local_support)
-
-    def collides_with(self, other, key):
-        return check_for_collision(
-            self.get_global_support,
-            other.get_global_support,
-            # TODO: use initial_direction as direction between bodies
-        )
-
-    def set_mass(self, mass):
+    def set_mass(self, mass: Float[Array, ""]):
         return eqx.tree_at(lambda x: x.mass, self, mass)
 
-    def set_inertia(self, inertia):
+    def set_inertia(self, inertia: Float[Array, ""]):
         return eqx.tree_at(lambda x: x.inertia, self, inertia)
 
-    def set_position(self, position):
+    def set_position(self, position: Float[Array, "2"]):
         return eqx.tree_at(lambda x: x.position, self, position)
 
-    def set_velocity(self, velocity):
+    def set_velocity(self, velocity: Float[Array, "2"]):
         return eqx.tree_at(lambda x: x.velocity, self, velocity)
 
-    def set_angle(self, angle):
+    def set_angle(self, angle: Float[Array, ""]):
         return eqx.tree_at(lambda x: x.angle, self, angle)
 
-    def set_angular_velocity(self, angular_velocity):
+    def set_angular_velocity(self, angular_velocity: Float[Array, ""]):
         return eqx.tree_at(lambda x: x.angular_velocity, self, angular_velocity)
 
-    def set_shape(self, shape):
+    def set_shape(self, shape: UniversalShape):
         return eqx.tree_at(lambda x: x.shape, self, shape)
 
     def __invariant__(self):
@@ -110,8 +80,7 @@ class Ball(AbstractBody, strict=True):
     angle: Float[Array, ""]
     angular_velocity: Float[Array, ""]
 
-    shape: AbstractShape
-    _transform: HomogenuousTransformer
+    shape: UniversalShape
 
     def __init__(self):
         self.mass = jnp.array(1.0)
@@ -120,5 +89,4 @@ class Ball(AbstractBody, strict=True):
         self.velocity = jnp.zeros((2,))
         self.angle = jnp.array(0.0)
         self.angular_velocity = jnp.array(0.0)
-        self.shape = Circle(jnp.array(0.05), jnp.zeros((2,)))
-        self._transform = HomogenuousTransformer()
+        self.shape = UniversalShape(Circle(jnp.array(0.05), jnp.zeros((2,))))

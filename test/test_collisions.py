@@ -1,8 +1,11 @@
 import jax
 from jax import numpy as jnp, random as jr
 
-from cotix._collisions import check_for_collision, compute_penetration_vector
-from cotix._shapes import AABB, Circle, Polygon
+from cotix._collisions import (
+    check_for_collision_convex,
+    compute_penetration_vector_convex,
+)
+from cotix._convex_shapes import AABB, Circle, Polygon
 
 
 def test_circle_vs_circle():
@@ -22,9 +25,13 @@ def test_circle_vs_circle():
         true_no_collision = jnp.sum((pa - pb) ** 2) > (ra + rb) ** 2
         true_shift = -jnp.sqrt(jnp.sum((pa - pb) ** 2)) + (ra + rb)
 
-        res_collision, simplex = check_for_collision(a.get_support, b.get_support)
+        res_collision, simplex = check_for_collision_convex(
+            a.get_support, b.get_support
+        )
         res_no_collision = ~res_collision
-        res_shift = compute_penetration_vector(a.get_support, b.get_support, simplex)
+        res_shift = compute_penetration_vector_convex(
+            a.get_support, b.get_support, simplex
+        )
 
         def _c1(_):
             return true_no_collision == res_no_collision
@@ -92,8 +99,12 @@ def test_rect_vs_rect():
             | is_first_right_second
         )
 
-        res_collision, simplex = check_for_collision(a.get_support, b.get_support)
-        penetration = compute_penetration_vector(a.get_support, b.get_support, simplex)
+        res_collision, simplex = check_for_collision_convex(
+            a.get_support, b.get_support
+        )
+        penetration = compute_penetration_vector_convex(
+            a.get_support, b.get_support, simplex
+        )
         penetration = jnp.absolute(penetration)
 
         c1 = res_collision != true_no_collision
@@ -148,10 +159,10 @@ def test_aabb_vs_aabb():
             | is_first_right_second
         )
 
-        res_collision, simplex = check_for_collision(
+        res_collision, simplex = check_for_collision_convex(
             aabb1.get_support, aabb2.get_support
         )
-        penetration = compute_penetration_vector(
+        penetration = compute_penetration_vector_convex(
             aabb1.get_support, aabb2.get_support, simplex
         )
         penetration = jnp.absolute(penetration)

@@ -1,24 +1,10 @@
 import equinox as eqx
 import jax
-from jax import numpy as jnp, tree_util as jtu
+from jax import numpy as jnp
 from jaxtyping import Array, Float
 
 from ._abstract_shapes import AbstractConvexShape, AbstractShape
 from ._geometry_utils import order_clockwise
-
-
-class CompositeShape(AbstractShape, strict=True):
-    parts: list[AbstractShape]
-
-    def get_support(self, direction):
-        raise NotImplementedError
-
-    def _get_center(self):
-        return jtu.tree_reduce(
-            lambda acc, shape: acc + shape.get_center(),
-            self.parts,
-            is_leaf=lambda node: isinstance(node, AbstractShape),
-        )
 
 
 class Circle(AbstractConvexShape, strict=True):
