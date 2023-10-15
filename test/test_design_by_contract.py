@@ -1,153 +1,120 @@
+import beartype
 import equinox as eqx
 import jax
+import jaxlib
 import pytest
 from jax import numpy as jnp
+from jaxtyping import Array, Float
 
-from cotix._design_by_contract import post_condition, pre_condition
-
-
-def _test_function(f):
-    wf = lambda a, b: f(jnp.array(a), jnp.array(b))
-
-    wf(1, 2)
-    wf(1, 0)
-    wf(5, 7)
-
-    # jax.jit throws ValueError, while eqx throws RuntimeError
-    with pytest.raises((RuntimeError, ValueError)):
-        wf(0, 0)
-        wf(0.5, 0.49)
-        wf(-42, -42)
+from cotix._design_by_contract import class_invariant, post_condition, pre_condition
 
 
-@pytest.mark.filterwarnings("ignore")
-def test_post_condition_no_jit():
-    @post_condition(lambda out: out >= 5)
+beardead = beartype.roar.BeartypeCallHintParamViolation
+inverror = (eqx.EquinoxTracetimeError, TypeError, jaxlib.xla_extension.XlaRuntimeError)
+
+
+@pytest.mark.parametrize("decorator", [lambda x: x, jax.jit, eqx.filter_jit])
+@pytest.mark.parametrize(
+    "condition",
+    [
+        post_condition((lambda out, *inp: out > inp[0] + inp[1]), provide_input=True),
+        pre_condition(lambda a, b: a >= 1),
+    ],
+)
+def test_parametrized_pre_and_post(decorator, condition):
     def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
+        return a**2 + b**2
 
-    _test_function(f)
+    f = decorator(condition(f))
 
+    f(jnp.array(2.0), jnp.array(0.0))
+    f(jnp.array(1), jnp.array(1.5))
+    f(jnp.array(5.0), jnp.array(0.0))
+    f(jnp.array(10.0), jnp.array(-10.0))
 
-def test_post_condition_jax_jit():
-    @jax.jit
-    @post_condition(lambda out: out >= 5)
-    def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
-
-    _test_function(f)
-
-
-def test_post_condition_eqx_jit():
-    @eqx.filter_jit
-    @post_condition(lambda out: out >= 5)
-    def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
-
-    _test_function(f)
-
-
-@pytest.mark.filterwarnings("ignore")
-def test_pre_condition_no_jit():
-    @pre_condition(lambda a, b: a >= 1)
-    def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
-
-    _test_function(f)
+    if "pre_condition" in condition.__qualname__:
+        with pytest.raises((RuntimeError, ValueError)):
+            f(jnp.array(0.0), jnp.array(5.0))
+        with pytest.raises((RuntimeError, ValueError)):
+            f(jnp.array(0.9), jnp.array(0))
+    if "post_condition" in condition.__qualname__:
+        with pytest.raises((RuntimeError, ValueError)):
+            f(jnp.array(1.0), jnp.array(0.5))
+        with pytest.raises((RuntimeError, ValueError)):
+            f(jnp.array(1), jnp.array(1.0))
+        with pytest.raises((RuntimeError, ValueError)):
+            f(jnp.array(0.0), jnp.array(0.5))
+        with pytest.raises((RuntimeError, ValueError)):
+            f(jnp.array(0), jnp.array(0))
 
 
-def test_pre_condition_jax_jit():
-    @jax.jit
-    @pre_condition(lambda a, b: a >= 1)
-    def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
+@class_invariant
+@beartype.beartype
+class _A(eqx.Module):
+    x: Float[Array, ""]
 
-    _test_function(f)
+    def g(self, x):
+        return jnp.array([x.sum()]) + self.x
 
-
-def test_pre_condition_eqx_jit():
-    @eqx.filter_jit
-    @pre_condition(lambda a, b: a >= 1)
-    def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
-
-    _test_function(f)
+    def __invariant__(self):
+        out = jnp.any(jnp.isnan(self.x)) | jnp.all(self.x < 0)
+        return out
 
 
-@pytest.mark.filterwarnings("ignore")
-def test_both_conditions_no_jit():
-    @post_condition(lambda out: out >= 5)
-    @pre_condition(lambda a, b: a >= 1)
-    def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
+@pytest.mark.parametrize("decorator", [lambda x: x, jax.jit, eqx.filter_jit])
+def test_invariant(decorator):
+    @decorator
+    def f():
+        a = _A(jnp.array(1.0))
+        a = eqx.tree_at(lambda x: x.x, a, jnp.array(5.0))
+        return a.g(jnp.array([1, 2]))
 
-    _test_function(f)
+    f()
 
-    with pytest.raises((RuntimeError, ValueError)):
-        f(jnp.array(0.0), jnp.array(10.0))
+    @decorator
+    def f():
+        a = _A(jnp.array(1.0))
+        return a.g(jnp.array([1, 2]))
 
+    f()
 
-def test_both_conditions_eqx_jit():
-    @eqx.filter_jit
-    @post_condition(lambda out: out >= 5)
-    @pre_condition(lambda a, b: a >= 1)
-    def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
+    with pytest.raises(inverror):
 
-    _test_function(f)
+        @decorator
+        def f():
+            a = _A(jnp.array(1.0))
+            a = eqx.tree_at(lambda x: x.x, a, jnp.nan)
+            return a.g(jnp.array([1, 2]))
 
-    with pytest.raises((RuntimeError, ValueError)):
-        f(jnp.array(0.0), jnp.array(10.0))
+        f()
 
+    with pytest.raises(inverror):
 
-def test_both_conditions_jax_jit():
-    @jax.jit
-    @post_condition(lambda out: out >= 5)
-    @pre_condition(lambda a, b: a >= 1)
-    def f(a, b):
-        return 4 + jnp.abs(a) + jnp.abs(b)
+        @decorator
+        def f():
+            a = _A(jnp.array(1.0))
+            a = eqx.tree_at(lambda x: x.x, a, 1)
+            out = a.g(jnp.array([1, 2, 3]))
+            return out
 
-    _test_function(f)
+        f()
 
-    with pytest.raises((RuntimeError, ValueError)):
-        f(jnp.array(0.0), jnp.array(10.0))
+    with pytest.raises(inverror):
 
+        @decorator
+        def f():
+            a = _A(jnp.array(1.0))
+            a = eqx.tree_at(lambda x: x.x, a, jnp.array([1, 2, 3]))
+            return a.g(jnp.array([1, 2, 3]))
 
-def _test_function_2(f):
-    wf = lambda x: f(jnp.array(x))
+        f()
 
-    wf(2.0)
-    wf(-5.0)
-    wf(15.0)
+    with pytest.raises(inverror):
 
-    with pytest.raises((RuntimeError, ValueError)):
-        wf(0.0)
-        wf(1.0)
-        wf(0.7)
+        @decorator
+        def f():
+            a = _A(jnp.array(1.0))
+            a = eqx.tree_at(lambda x: x.x, a, jnp.array(-10.0))
+            return a.g(jnp.array([1, 2, 3]))
 
-
-@pytest.mark.filterwarnings("ignore")
-def test_post_with_input_no_jit():
-    @post_condition((lambda out, inp: out > inp), provide_input=True)
-    def f(x):
-        return x * x
-
-    _test_function_2(f)
-
-
-def test_post_with_input_eqx_jit():
-    @eqx.filter_jit
-    @post_condition((lambda out, inp: out > inp), provide_input=True)
-    def f(x):
-        return x * x
-
-    _test_function_2(f)
-
-
-def test_post_with_input_jax_jit():
-    @jax.jit
-    @post_condition((lambda out, inp: out > inp), provide_input=True)
-    def f(x):
-        return x * x
-
-    _test_function_2(f)
+        f()
