@@ -22,9 +22,9 @@ def test_circle_vs_circle():
         true_no_collision = jnp.sum((pa - pb) ** 2) > (ra + rb) ** 2
         true_shift = -jnp.sqrt(jnp.sum((pa - pb) ** 2)) + (ra + rb)
 
-        res_collision, simplex = check_for_collision(a, b, key)
+        res_collision, simplex = check_for_collision(a.get_support, b.get_support)
         res_no_collision = ~res_collision
-        res_shift = compute_penetration_vector(a, b, simplex)
+        res_shift = compute_penetration_vector(a.get_support, b.get_support, simplex)
 
         def _c1(_):
             return true_no_collision == res_no_collision
@@ -92,8 +92,8 @@ def test_rect_vs_rect():
             | is_first_right_second
         )
 
-        res_collision, simplex = check_for_collision(a, b, key)
-        penetration = compute_penetration_vector(a, b, simplex)
+        res_collision, simplex = check_for_collision(a.get_support, b.get_support)
+        penetration = compute_penetration_vector(a.get_support, b.get_support, simplex)
         penetration = jnp.absolute(penetration)
 
         c1 = res_collision != true_no_collision
@@ -148,8 +148,12 @@ def test_aabb_vs_aabb():
             | is_first_right_second
         )
 
-        res_collision, simplex = check_for_collision(aabb1, aabb2, key)
-        penetration = compute_penetration_vector(aabb1, aabb2, simplex)
+        res_collision, simplex = check_for_collision(
+            aabb1.get_support, aabb2.get_support
+        )
+        penetration = compute_penetration_vector(
+            aabb1.get_support, aabb2.get_support, simplex
+        )
         penetration = jnp.absolute(penetration)
 
         c1 = res_collision != true_no_collision

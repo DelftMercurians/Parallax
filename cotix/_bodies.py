@@ -46,13 +46,19 @@ class AbstractBody(eqx.Module, strict=True):
             "doing any smart other things with it.",
         )
 
+    def get_global_support(self, direction):
+        """
+        Computes a support vector in a global coordinate system.
+        """
+        self._transform.inverse_direction(direction)
+        local_support = self.shape.get_support(direction)
+        return self._transform.forward_vector(local_support)
+
     def collides_with(self, other, key):
         return check_for_collision(
-            self.shape,
-            other.shape,
-            key=key,
-            trA=self.get_transform(),
-            trB=other.get_transform(),
+            self.get_global_support,
+            other.get_global_support,
+            # TODO: use initial_direction as direction between bodies
         )
 
     def set_mass(self, mass):

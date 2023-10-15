@@ -1,11 +1,11 @@
 import equinox as eqx
 import jax
 from jax import numpy as jnp, random as jr
+from jaxtyping import Array, Float
 
-from ._abstract_shapes import AbstractConvexShape
+from ._abstract_shapes import SupportFn
 from ._geometry_utils import (
     fast_normal,
-    HomogenuousTransformer,
     is_point_in_triangle,
     minkowski_diff,
     random_direction,
@@ -13,18 +13,19 @@ from ._geometry_utils import (
 
 
 def _get_collision_simplex(
-    A: AbstractConvexShape, B: AbstractConvexShape, key, trA, trB
+    A_support_fn: SupportFn,
+    B_support_fn: SupportFn,
+    initial_direction: Float[Array, "2"],
 ):
-    # make the algorithm ''randomized'' -> probability of problems = 0
     # TODO: test weird cases; use the direction between centers as the starting one
-    # TODO: fix breaking (nans) when key = None
-    initial_direction = random_direction(key)
 
     # setup simplex
     simplex = jnp.zeros((3, 2))
     # .at[0] inside jit is inplace -> no performance hit
-    simplex = simplex.at[0].set(minkowski_diff(A, trA, B, trB, initial_direction))
-    simplex = simplex.at[1].set(minkowski_diff(A, trA, B, trB, -simplex[0]))
+    simplex = simplex.at[0].set(
+        minkowski_diff(A_support_fn, B_support_fn, initial_direction)
+    )
+    simplex = simplex.at[1].set(minkowski_diff(A_support_fn, B_support_fn, -simplex[0]))
 
     def reverse_simplex(simplex, direction):
         tmp = simplex[0]
@@ -47,7 +48,7 @@ def _get_collision_simplex(
     )
 
     # the last point is computed only after we have correct direction
-    c = minkowski_diff(A, trA, B, trB, direction)
+    c = minkowski_diff(A_support_fn, B_support_fn, direction)
     simplex = simplex.at[2].set(c)
 
     # lax while loop:
@@ -68,9 +69,9 @@ def _get_collision_simplex(
             lambda *_: (simplex.at[0].set(c), cb_normal),
         )
 
-        c = minkowski_diff(
-            A, trA, B, trB, direction
-        )  # get the point in the new direction
+        # get the point in the new direction
+        c = minkowski_diff(A_support_fn, B_support_fn, direction)
+
         simplex = simplex.at[2].set(c)
 
         # pack back to the same shape
@@ -107,7 +108,10 @@ def _get_collision_simplex(
 
 
 def _get_closest_minkowski_diff(
-    A: AbstractConvexShape, B: AbstractConvexShape, simplex, solver_iterations, trA, trB
+    A_support_fn: SupportFn,
+    B_support_fn: SupportFn,
+    simplex: Float[Array, "3 2"],
+    solver_iterations,
 ):
     # EPA (expanding polytope algorithm) forces us to have 'dynamic size' arrays.
     # JAX does not support dynamic size arrays. But we can cheat, as per usual, and just
@@ -180,7 +184,7 @@ def _get_closest_minkowski_diff(
         normal = normal / (
             jnp.absolute(normal[0]) + jnp.absolute(normal[1])
         )  # TODO: remove this renormalization
-        new_point = minkowski_diff(A, trA, B, trB, normal)
+        new_point = minkowski_diff(A_support_fn, B_support_fn, normal)
         # lets replace current edge with edge[0], new point:
         edges = edges.at[best_edge_index].set(jnp.array([best_edge[0], new_point]))
         # and insert in the end new_point, edge[1]
@@ -212,13 +216,11 @@ def _get_closest_minkowski_diff(
 
 # Now, lets define the functions that are available to users
 def check_for_collision(
-    A: AbstractConvexShape,
-    B: AbstractConvexShape,
-    key=jr.PRNGKey(1),
-    trA=HomogenuousTransformer(),
-    trB=HomogenuousTransformer(),
+    support_A: SupportFn,
+    support_B: SupportFn,
+    initial_direction=random_direction(jr.PRNGKey(1)),
 ):
-    simplex = _get_collision_simplex(A, B, key, trA, trB)
+    simplex = _get_collision_simplex(support_A, support_B, initial_direction)
     return jax.lax.cond(
         jnp.all(simplex == jnp.zeros_like(simplex)),
         lambda: (False, jnp.nan * simplex),
@@ -227,14 +229,12 @@ def check_for_collision(
 
 
 def compute_penetration_vector(
-    A: AbstractConvexShape,
-    B: AbstractConvexShape,
-    simplex,
+    support_A: SupportFn,
+    support_B: SupportFn,
+    simplex: Float[Array, "3 2"],
     solver_iterations=48,
-    trA=HomogenuousTransformer(),
-    trB=HomogenuousTransformer(),
 ):
     penetration = _get_closest_minkowski_diff(
-        A, B, simplex, solver_iterations, trA, trB
+        support_A, support_B, simplex, solver_iterations
     )  # TODO: Decrease this value to 32
     return penetration
