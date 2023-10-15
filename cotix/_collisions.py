@@ -1,6 +1,7 @@
 import equinox as eqx
 import jax
 from jax import numpy as jnp, random as jr
+from jaxtyping import Array, Float
 
 from ._abstract_shapes import AbstractConvexShape
 from ._geometry_utils import (
@@ -108,7 +109,7 @@ def _get_collision_simplex(
 
 def _get_closest_minkowski_diff(
     A: AbstractConvexShape, B: AbstractConvexShape, simplex, solver_iterations, trA, trB
-):
+) -> Float[Array, "2"]:
     # EPA (expanding polytope algorithm) forces us to have 'dynamic size' arrays.
     # JAX does not support dynamic size arrays. But we can cheat, as per usual, and just
     # use fixed size array, of let's say, 20 vertices, which will guarantee high enough

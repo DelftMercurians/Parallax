@@ -15,11 +15,13 @@ class AbstractBody(eqx.Module, strict=True):
     mass: AbstractVar[Float[Array, ""]]
     inertia: AbstractVar[Float[Array, ""]]
 
-    position: AbstractVar[Float[Array, "2"]]
+    position: AbstractVar[
+        Float[Array, "2"]
+    ]  # having position here and in shape is inconvenient
     velocity: AbstractVar[Float[Array, "2"]]
 
     angle: AbstractVar[Float[Array, ""]]
-    angular_velocity: AbstractVar[Float[Array, "2"]]
+    angular_velocity: AbstractVar[Float[Array, "2"]]  # shouldnt this be a scalar?
 
     shape: AbstractVar[AbstractShape]
     _transform: AbstractVar[HomogenuousTransformer]
@@ -107,12 +109,29 @@ class Ball(AbstractBody, strict=True):
     shape: AbstractShape
     _transform: HomogenuousTransformer
 
-    def __init__(self):
-        self.mass = 1.0
-        self.inertia = 1.0
+    def __init__(self, mass, velocity, shape):
+        self.mass = mass
+        self.inertia = mass
+
         self.position = jnp.zeros((2,))
-        self.velocity = jnp.zeros((2,))
-        self.angle = 0
-        self.angular_velocity = 0
-        self.shape = Circle(0.05, jnp.zeros((2,)))
+        self.velocity = velocity
+
+        self.angle = jnp.float32(0.0)
+        self.angular_velocity = jnp.zeros((2,))
+
+        self.shape = shape
         self._transform = HomogenuousTransformer()
+
+    @staticmethod
+    def make_default():
+        ball = Ball(0, jnp.zeros((2,)), Circle(0.05, jnp.zeros((2,))))
+        ball = (
+            ball.set_mass(1.0)
+            .set_inertia(1.0)
+            .set_position(jnp.zeros((2,)))
+            .set_velocity(jnp.zeros((2,)))
+            .set_angle(0)
+            .set_angular_velocity(0)
+            .set_shape(Circle(0.05, jnp.zeros((2,))))
+        )
+        return ball

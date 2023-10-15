@@ -25,6 +25,10 @@ class Circle(AbstractConvexShape, strict=True):
     radius: Float[Array, ""]
     position: Float[Array, "2"]
 
+    def __init__(self, radius: Float[Array, ""], position: Float[Array, "2"]):
+        self.radius = radius
+        self.position = position
+
     def _get_local_support(self, direction: Float[Array, "2"]):
         normalized_direction = direction / jnp.linalg.norm(direction)
         return normalized_direction * self.radius + self.position
