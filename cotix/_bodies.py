@@ -120,5 +120,5 @@ class Ball(AbstractBody, strict=True):
         self.velocity = jnp.zeros((2,))
         self.angle = jnp.array(0.0)
         self.angular_velocity = jnp.array(0.0)
-        self.shape = Circle(0.05, jnp.zeros((2,)))
+        self.shape = Circle(jnp.array(0.05), jnp.zeros((2,)))
         self._transform = HomogenuousTransformer()

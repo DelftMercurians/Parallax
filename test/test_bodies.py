@@ -21,7 +21,9 @@ def test_ball_colliding():
 def test_misaligned_ball_rotating():
     key = jr.PRNGKey(0)
     a = Ball().set_position(jnp.array([0.0, 0.0]))
-    a = eqx.tree_at(lambda x: x.shape, a, Circle(0.05, jnp.array([10.0, 0.0])))
+    a = eqx.tree_at(
+        lambda x: x.shape, a, Circle(jnp.array(0.05), jnp.array([10.0, 0.0]))
+    )
     a = eqx.tree_at(lambda x: x.angle, a, jnp.array(jnp.pi / 2))
 
     b = Ball().set_position(jnp.array([0.0, 10.0]))
@@ -37,7 +39,9 @@ def test_misaligned_ball_rotating_jitted():
     def f():
         key = jr.PRNGKey(0)
         a = Ball().set_position(jnp.array([0.0, 0.0]))
-        a = eqx.tree_at(lambda x: x.shape, a, Circle(0.05, jnp.array([10.0, 0.0])))
+        a = eqx.tree_at(
+            lambda x: x.shape, a, Circle(jnp.array(0.05), jnp.array([10.0, 0.0]))
+        )
         a = eqx.tree_at(lambda x: x.angle, a, jnp.array(jnp.pi / 2))
 
         b = Ball().set_position(jnp.array([0.0, 10.0]))
