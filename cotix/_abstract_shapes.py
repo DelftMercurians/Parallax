@@ -1,7 +1,7 @@
 import abc
-from typing import Callable
 
 import equinox as eqx
+from beartype.typing import Callable
 from jaxtyping import Array, Float
 
 
