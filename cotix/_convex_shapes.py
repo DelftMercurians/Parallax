@@ -15,7 +15,7 @@ class Circle(AbstractConvexShape, strict=True):
         normalized_direction = direction / jnp.linalg.norm(direction)
         return normalized_direction * self.radius + self.position
 
-    def _get_center(self):
+    def get_center(self):
         return self.position
 
 
@@ -32,7 +32,7 @@ class Polygon(AbstractConvexShape, strict=True):
         dot_products = jax.lax.map(lambda x: jnp.dot(x, direction), self.vertices)
         return self.vertices.at[jnp.argmax(dot_products)].get()
 
-    def _get_center(self) -> Float[Array, "2"]:
+    def get_center(self) -> Float[Array, "2"]:
         return jnp.mean(self.vertices, axis=0)
 
 
@@ -56,5 +56,5 @@ class AABB(AbstractConvexShape, strict=True):
         support_point = jnp.where(direction >= 0, self.max, self.min)
         return support_point
 
-    def _get_center(self):
+    def get_center(self):
         return (self.min + self.max) / 2.0

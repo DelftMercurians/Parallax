@@ -17,7 +17,7 @@ def test_rect_support_vectors():
             dtype=jnp.float32,
         )
     )
-    assert jnp.all(rect1._get_center() == jnp.array([0, 0]))
+    assert jnp.all(rect1.get_center() == jnp.array([0.0, 0.0]))
     assert rect1.get_support(jnp.array([1.0, 0.0]))[0] == 1
 
     rect2 = Polygon(
@@ -31,7 +31,7 @@ def test_rect_support_vectors():
             dtype=jnp.float32,
         )
     )
-    assert jnp.all(rect2._get_center() == jnp.array([1.5, 1.5]))
+    assert jnp.all(rect2.get_center() == jnp.array([1.5, 1.5]))
     assert rect2.get_support(jnp.array([1.0, 0.0]))[0] == 2
     assert rect2.get_support(jnp.array([0.0, -1.0]))[1] == 1
 
