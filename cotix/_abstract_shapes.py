@@ -33,7 +33,7 @@ class AbstractShape(eqx.Module, strict=True):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _get_center(self):
+    def get_center(self):
         """
         Returns an approximate central point of the shape. It is computed as middle of
         an axis-aligned bounding box.

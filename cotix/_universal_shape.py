@@ -82,7 +82,7 @@ class UniversalShape(eqx.Module, strict=True):
             solver_iterations,
         )
 
-    def _get_center(self):
+    def get_center(self):
         return jtu.tree_reduce(
             lambda acc, shape: acc + shape.get_center(),
             self.parts,
