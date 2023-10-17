@@ -23,7 +23,7 @@ def test_viz():
     viz.add_element(b_drawer)
 
     run = True
-
+    framecount = 0
     while run:
         # Iterating over all the events received from
         # pygame.event.get()
@@ -40,3 +40,8 @@ def test_viz():
         # print(b_drawer.object.position)
         # print("-------------------")
         pygame.time.Clock().tick(framerate)
+
+        framecount += 1
+
+        if framecount == framerate:
+            run = False
