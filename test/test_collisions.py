@@ -1,8 +1,12 @@
 import jax
+import pytest
 from jax import numpy as jnp, random as jr
 
-from cotix._collisions import check_for_collision, compute_penetration_vector
-from cotix._shapes import AABB, Circle, Polygon
+from cotix._collisions import (
+    check_for_collision_convex,
+    compute_penetration_vector_convex,
+)
+from cotix._convex_shapes import AABB, Circle, Polygon
 
 
 def test_circle_vs_circle():
@@ -22,9 +26,14 @@ def test_circle_vs_circle():
         true_no_collision = jnp.sum((pa - pb) ** 2) > (ra + rb) ** 2
         true_shift = -jnp.sqrt(jnp.sum((pa - pb) ** 2)) + (ra + rb)
 
-        res_collision, simplex = check_for_collision(a, b, key)
+        dir = b.get_center() - a.get_center()
+        res_collision, simplex = check_for_collision_convex(
+            a.get_support, b.get_support, dir
+        )
         res_no_collision = ~res_collision
-        res_shift = compute_penetration_vector(a, b, simplex)
+        res_shift = compute_penetration_vector_convex(
+            a.get_support, b.get_support, simplex
+        )
 
         def _c1(_):
             return true_no_collision == res_no_collision
@@ -33,7 +42,11 @@ def test_circle_vs_circle():
             first_cond = true_no_collision == res_no_collision
 
             # second condition is that it is approximately closest shift
-            second_cond = jnp.absolute(true_shift - jnp.linalg.norm(res_shift)) < 1e-2
+            second_cond = (
+                jnp.absolute(true_shift - jnp.linalg.norm(res_shift))
+                / jnp.linalg.norm(true_shift)
+                < 1e-2
+            )
             return first_cond & second_cond
 
         return jax.lax.cond(true_no_collision, _c1, _c2, pa)
@@ -92,8 +105,14 @@ def test_rect_vs_rect():
             | is_first_right_second
         )
 
-        res_collision, simplex = check_for_collision(a, b, key)
-        penetration = compute_penetration_vector(a, b, simplex)
+        dir = b.get_center() - a.get_center()
+
+        res_collision, simplex = check_for_collision_convex(
+            a.get_support, b.get_support, dir
+        )
+        penetration = compute_penetration_vector_convex(
+            a.get_support, b.get_support, simplex
+        )
         penetration = jnp.absolute(penetration)
 
         c1 = res_collision != true_no_collision
@@ -148,8 +167,14 @@ def test_aabb_vs_aabb():
             | is_first_right_second
         )
 
-        res_collision, simplex = check_for_collision(aabb1, aabb2, key)
-        penetration = compute_penetration_vector(aabb1, aabb2, simplex)
+        dir = aabb2.get_center() - aabb1.get_center()
+
+        res_collision, simplex = check_for_collision_convex(
+            aabb1.get_support, aabb2.get_support, dir
+        )
+        penetration = compute_penetration_vector_convex(
+            aabb1.get_support, aabb2.get_support, simplex
+        )
         penetration = jnp.absolute(penetration)
 
         c1 = res_collision != true_no_collision
@@ -161,3 +186,20 @@ def test_aabb_vs_aabb():
     out = f(jr.split(key, N))
 
     assert jnp.all(out)
+
+
+@pytest.mark.parametrize("pos", [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
+def test_circle_circle_aligned_positive(pos):
+    a = Circle(radius=jnp.array(1.0), position=jnp.array(pos))
+    b = Circle(radius=jnp.array(0.2), position=jnp.zeros((2,)))
+    dir = b.get_center() - a.get_center()
+
+    res, simplex = check_for_collision_convex(
+        a.get_support, b.get_support, initial_direction=dir
+    )
+
+    penetration = compute_penetration_vector_convex(
+        a.get_support, b.get_support, simplex
+    )
+
+    assert jnp.linalg.norm(penetration - jnp.array(pos) * 0.2) < 1e-3

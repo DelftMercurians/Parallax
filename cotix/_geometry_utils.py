@@ -2,7 +2,7 @@ import equinox as eqx
 from jax import numpy as jnp, random as jr
 from jaxtyping import Array, Float
 
-from ._abstract_shapes import AbstractConvexShape
+from ._abstract_shapes import SupportFn
 
 
 # TODO: write docstrings
@@ -35,8 +35,15 @@ def random_direction(key):
     return x / jnp.linalg.norm(x)
 
 
-def minkowski_diff(A: AbstractConvexShape, trA, B: AbstractConvexShape, trB, direction):
-    return A._get_support(direction, trA) - B._get_support(-direction, trB)
+def minkowski_diff(
+    A_support_fn: SupportFn, B_support_fn: SupportFn, direction: Float[Array, "2"]
+):
+    """
+    Given two support functions, and a direction, computes minkowski difference.
+    This is a really simple function, but relatively important, so I decided
+    to isolate it.
+    """
+    return A_support_fn(direction) - B_support_fn(-direction)
 
 
 def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:

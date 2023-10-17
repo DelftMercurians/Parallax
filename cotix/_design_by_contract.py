@@ -46,11 +46,28 @@ def post_condition(condition, provide_input=False):
     return decorator
 
 
-def _check_invariant(func, invariant):
+def _check_all_annotations(cls):
+    for x in type(cls).__annotations__.items():
+        cls = eqx.error_if(
+            cls,
+            not isinstance(getattr(cls, x[0]), x[1]),
+            f"{x[0]}={getattr(cls, x[0])} is not of type {x[1]}",
+        )
+    return cls
+
+
+def _invariant_fn(cls):
+    cls = _check_all_annotations(cls)
+    user_inv = getattr(cls, "__invariant__")()
+    return user_inv, cls
+
+
+def _check_invariant(func):
     def wrapper(*args, **kwargs):
+        cond, typechecked_self = _invariant_fn(args[0])
         checked_self = eqx.error_if(
-            args[0],
-            invariant(args[0]),
+            typechecked_self,
+            cond,
             "Invariant failed! That is kinda bad. Probably nan"
             " or invalid value encountered in the checked class.",
         )
@@ -60,20 +77,9 @@ def _check_invariant(func, invariant):
     return wrapper
 
 
-def _check_all_annotations(instance):
-    res = True
-    for x in type(instance).__annotations__.items():
-        print(f"checked {x}")
-        res &= isinstance(getattr(instance, x[0]), x[1])
-    return res
-
-
 def class_invariant(cls):
-    invariant = lambda instance: getattr(cls, "__invariant__")(
-        instance
-    ) & _check_all_annotations(instance)
     for name in dir(cls):
         if name.startswith("_"):
             continue
-        setattr(cls, name, _check_invariant(getattr(cls, name), invariant))
+        setattr(cls, name, _check_invariant(getattr(cls, name)))
     return cls
