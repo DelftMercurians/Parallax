@@ -7,5 +7,8 @@ equinox>=0.11.1
 jax>=0.4.18
 jaxlib>=0.4.18
 
+# visualization
+pygame
+
 # testing
 pytest
