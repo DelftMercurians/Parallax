@@ -34,19 +34,19 @@ def test_bad_types_collision():
 
 def test_bad_types_bodies_with_invariant():
     with pytest.raises(eqxfailed):
-        ball = Ball()
+        ball = Ball.make_default()
         ball = eqx.tree_at(lambda x: x.mass, ball, jnp.array([1, 2, 3]))
         # trigger invariant
         ball = ball.set_position(jnp.array([1.0, 2.0]))
 
     with pytest.raises(eqxfailed):
-        ball = Ball()
+        ball = Ball.make_default()
         ball = eqx.tree_at(lambda x: x.velocity, ball, jnp.array(1.0))
         # trigger invariant
         ball = ball.set_position(jnp.array([1.0, 2.0]))
 
     with pytest.raises(eqxfailed):
-        ball = Ball()
+        ball = Ball.make_default()
         ball = eqx.tree_at(lambda x: x.inertia, ball, jnp.nan)
         # trigger invariant
         ball = ball.set_position(jnp.array([1.0, 2.0]))

@@ -58,6 +58,10 @@ def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:
     return vertices[indices]
 
 
+def perpendicular_vector(v):
+    return jnp.array([-v[1], v[0]])
+
+
 class HomogenuousTransformer(eqx.Module, strict=True):
     matrix: Float[Array, "3 3"]
     inv_matrix: Float[Array, "3 3"]

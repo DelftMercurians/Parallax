@@ -82,11 +82,32 @@ class Ball(AbstractBody, strict=True):
 
     shape: UniversalShape
 
-    def __init__(self):
-        self.mass = jnp.array(1.0)
-        self.inertia = jnp.array(1.0)
+    def __init__(self, mass, velocity, shape):
+        self.mass = mass
+        self.inertia = mass
+
         self.position = jnp.zeros((2,))
-        self.velocity = jnp.zeros((2,))
+        self.velocity = velocity
+
         self.angle = jnp.array(0.0)
         self.angular_velocity = jnp.array(0.0)
-        self.shape = UniversalShape(Circle(jnp.array(0.05), jnp.zeros((2,))))
+
+        self.shape = shape
+
+    @staticmethod
+    def make_default():
+        ball = Ball(
+            jnp.array(1.0),
+            jnp.zeros((2,)),
+            UniversalShape(Circle(jnp.array(0.05), jnp.zeros((2,)))),
+        )
+        ball = (
+            ball.set_mass(jnp.array(1.0))
+            .set_inertia(jnp.array(1.0))
+            .set_position(jnp.zeros((2,)))
+            .set_velocity(jnp.zeros((2,)))
+            .set_angle(jnp.array(0.0))
+            .set_angular_velocity(jnp.array(0.0))
+            .set_shape(UniversalShape(Circle(jnp.array(0.05), jnp.zeros((2,)))))
+        )
+        return ball

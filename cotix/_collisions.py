@@ -112,7 +112,7 @@ def _get_closest_minkowski_diff(
     B_support_fn: SupportFn,
     simplex: Float[Array, "3 2"],
     solver_iterations,
-):
+) -> Float[Array, "2"]:
     # EPA (expanding polytope algorithm) forces us to have 'dynamic size' arrays.
     # JAX does not support dynamic size arrays. But we can cheat, as per usual, and just
     # use fixed size array, of let's say, 20 vertices, which will guarantee high enough
