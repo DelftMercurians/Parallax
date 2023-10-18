@@ -11,7 +11,7 @@ def test_viz():
 
     viz = Visualizer(100, 6, 6, name="Test Viz")
 
-    b = Ball()
+    b = Ball.make_default()
 
     b = b.set_position(b.position + jnp.array([3.0, 3.0]))
 
