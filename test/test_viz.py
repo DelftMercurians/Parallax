@@ -13,17 +13,16 @@ def test_viz():
 
     b = Ball()
 
-    b.set_position(b.position + jnp.array([3.0, 3.0]))
-    # b.update_transform()
+    b = b.set_position(b.position + jnp.array([3.0, 3.0]))
 
     print(b.position)
 
     b_drawer = BallDrawer(b, pygame.Color(255, 0, 0))
 
-    viz.add_element(b_drawer)
-
     run = True
     framecount = 0
+    inc = jnp.array([0.1, 0.1])
+
     while run:
         # Iterating over all the events received from
         # pygame.event.get()
@@ -34,14 +33,16 @@ def test_viz():
                 run = False
         # Draws the surface object to the screen.
 
-        # static ball for now, the properties of the Ball should change over time
-        viz.draw()
-        # b_drawer.object.set_position(b.position + jnp.array([0.1, 0.1]))
-        # print(b_drawer.object.position)
-        # print("-------------------")
+        viz.draw([b_drawer])
+
         pygame.time.Clock().tick(framerate)
 
         framecount += 1
+
+        # update the ball
+        b = b.set_position(b.position + inc)
+        # update the drawer with the ball
+        b_drawer.object = b
 
         if framecount == framerate:
             run = False

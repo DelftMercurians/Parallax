@@ -49,7 +49,7 @@ class BallDrawer(AbstractDrawer):
 
 class Visualizer:
     def __init__(
-        self, pix2meter_ratio, width_m, height_m, elements=[], name="Cotix Visualizer"
+        self, pix2meter_ratio, width_m, height_m, name="Cotix Visualizer"
     ) -> None:
         pygame.init()
         pygame.display.set_caption(name)
@@ -57,23 +57,20 @@ class Visualizer:
         self.window = pygame.display.set_mode(
             (width_m * pix2meter_ratio, height_m * pix2meter_ratio)
         )
-        self.elements = elements
 
         self.pix2meter = pix2meter_ratio
 
         # Fill the screen with white color
         self.window.fill((255, 255, 255))
 
-    # add element to draw
-    def add_element(self, element: AbstractDrawer):
-        self.elements.append(element)
-
     # return the list of events that happened since the last update as pygame
     def get_events(self):
         return pygame.event.get()
 
-    def draw(self):
-        for e in self.elements:
+    def draw(self, elements):
+        self.window.fill((255, 255, 255))
+
+        for e in elements:
             e.draw(self.window, self.pix2meter)
 
         pygame.display.flip()
