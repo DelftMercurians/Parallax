@@ -67,8 +67,12 @@ class Visualizer:
     def get_events(self):
         return pygame.event.get()
 
+    def clear(self, c=(255, 255, 255)):
+        # fills the screen with a plain color c, deleting the view we had previously
+        self.window.fill(c)
+
     def draw(self, elements):
-        self.window.fill((255, 255, 255))
+        self.clear()
 
         for e in elements:
             e.draw(self.window, self.pix2meter)
