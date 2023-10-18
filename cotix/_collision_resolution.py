@@ -1,3 +1,4 @@
+import jax.lax
 from jax import numpy as jnp
 from jaxtyping import Array, Float
 
@@ -18,16 +19,22 @@ def _split_bodies(
     return body1, body2
 
 
+def _resolve_collision_checked(
+    body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
+) -> (AbstractBody, AbstractBody):
+    return jax.lax.cond(
+        jnp.dot(body1.velocity - body2.velocity, epa_vector) >= 0.0,
+        lambda: (body1, body2),
+        lambda: _resolve_collision(body1, body2, epa_vector),
+    )
+
+
 def _resolve_collision(
     body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
 ) -> (AbstractBody, AbstractBody):
     # todo: we need to determine the elasticity of the collision.
     #  probably based on the body properties
     # todo: angular momentum
-
-    # todo: check that bodies are moving towards each other
-    # if jnp.dot(body1.velocity - body2.velocity, epa_vector) >= jnp.zeros(1):
-    #     return body1, body2
 
     elasticity = 1
 
