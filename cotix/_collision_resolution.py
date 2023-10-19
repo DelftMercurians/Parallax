@@ -1,3 +1,10 @@
+"""
+Implements physics logic that resolves a simple elastic collision between two bodies.
+"""
+
+
+from typing import Tuple
+
 import jax.lax
 from jax import numpy as jnp
 from jaxtyping import Array, Float
@@ -8,7 +15,7 @@ from cotix._geometry_utils import perpendicular_vector
 
 def _split_bodies(
     body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
-) -> (AbstractBody, AbstractBody):
+) -> Tuple[AbstractBody, AbstractBody]:
     # lets apply translation to both bodies, taking their mass into account
     body1 = body1.set_position(
         body1.position + epa_vector * (body2.mass / (body1.mass + body2.mass))
@@ -21,7 +28,7 @@ def _split_bodies(
 
 def _resolve_collision_checked(
     body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
-) -> (AbstractBody, AbstractBody):
+) -> Tuple[AbstractBody, AbstractBody]:
     return jax.lax.cond(
         jnp.dot(body1.velocity - body2.velocity, epa_vector) >= 0.0,
         lambda: (body1, body2),
@@ -31,7 +38,7 @@ def _resolve_collision_checked(
 
 def _resolve_collision(
     body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
-) -> (AbstractBody, AbstractBody):
+) -> Tuple[AbstractBody, AbstractBody]:
     # todo: we need to determine the elasticity of the collision.
     #  probably based on the body properties
     # todo: angular momentum

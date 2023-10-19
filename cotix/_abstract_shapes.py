@@ -1,3 +1,8 @@
+"""
+Just a few shape interfaces (traits) isolated into a different file.
+"""
+
+
 import abc
 
 import equinox as eqx
@@ -11,6 +16,10 @@ SupportFn = Callable[[Float[Array, "2"]], Float[Array, "2"]]
 
 
 class AbstractShape(eqx.Module, strict=True):
+    """
+    The main class that forces you to implement get_support and get_center.
+    """
+
     @abc.abstractmethod
     def get_support(self, direction):
         """
@@ -47,4 +56,6 @@ class AbstractShape(eqx.Module, strict=True):
 
 
 class AbstractConvexShape(AbstractShape, strict=True):
-    ...
+    """
+    For now, a simple, more verbose, wrapper around AbstractShape.
+    """

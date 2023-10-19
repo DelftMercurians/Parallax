@@ -1,3 +1,7 @@
+"""
+Implements a few concepts from design by contract.
+"""
+
 import equinox as eqx
 from jax import numpy as jnp
 
@@ -7,6 +11,10 @@ from jax import numpy as jnp
 
 
 def pre_condition(condition):
+    """
+    Implements pre_condition that works under JAX transformations.
+    """
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             fn_input = (args, kwargs)
@@ -25,6 +33,10 @@ def pre_condition(condition):
 
 
 def post_condition(condition, provide_input=False):
+    """
+    Implements post condition that works under JAX transformation.
+    """
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             retval = func(*args, **kwargs)
@@ -78,6 +90,16 @@ def _check_invariant(func):
 
 
 def class_invariant(cls):
+    """
+    Implements class invariant that works under JAX transformations.
+
+    In fact, this one is really useful, since for every non-static method of
+    a class it checks whether the invariant holds. Thus we can easily detect
+    jnp.nans or invalid values 'early': before the runs of the function.
+
+    Sadly, detecting them _after_ the function execution is much harder: we don't
+    necessarily know if what the function returns is a valid object.
+    """
     for name in dir(cls):
         if name.startswith("_"):
             continue
