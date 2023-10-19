@@ -1,3 +1,7 @@
+"""
+A number of semi-private geometry utils for some simple and common operations
+"""
+
 import equinox as eqx
 from jax import numpy as jnp, random as jr
 from jaxtyping import Array, Float
@@ -5,10 +9,11 @@ from jaxtyping import Array, Float
 from ._abstract_shapes import SupportFn
 
 
-# TODO: write docstrings
-
-
 def is_point_in_triangle(pt, v1, v2, v3):
+    """
+    Checks whether a point is inside a two-dimensional triangle described by 3 points.
+    """
+
     def sign(p1, p2, p3):
         return (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1])
 
@@ -23,10 +28,16 @@ def is_point_in_triangle(pt, v1, v2, v3):
 
 
 def fast_normal(a):
+    """
+    Quickly computes some consistent normal of the vector.
+    """
     return jnp.array([-a[1], a[0]])
 
 
 def random_direction(key):
+    """
+    Generates a uniformly random normalized direction on a hypersphere (circle)
+    """
     if key is None:
         return jnp.array([1.0, 0.0])
 
@@ -36,17 +47,20 @@ def random_direction(key):
 
 
 def minkowski_diff(
-    A_support_fn: SupportFn, B_support_fn: SupportFn, direction: Float[Array, "2"]
+    a_support_fn: SupportFn, b_support_fn: SupportFn, direction: Float[Array, "2"]
 ):
     """
     Given two support functions, and a direction, computes minkowski difference.
     This is a really simple function, but relatively important, so I decided
     to isolate it.
     """
-    return A_support_fn(direction) - B_support_fn(-direction)
+    return a_support_fn(direction) - b_support_fn(-direction)
 
 
 def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:
+    """
+    Orders a bunch of vertices clockwise around their center of mass.
+    """
     relative_vertices = vertices - jnp.mean(vertices, axis=0)
     relative_vertices = eqx.error_if(
         relative_vertices,
@@ -59,10 +73,15 @@ def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:
 
 
 def perpendicular_vector(v):
+    """Another function to quickly compute perpendicular vector."""
     return jnp.array([-v[1], v[0]])
 
 
 class HomogenuousTransformer(eqx.Module, strict=True):
+    """
+    Allows to apply arbitrary affine transformations to passed vectors/directions
+    """
+
     matrix: Float[Array, "3 3"]
     inv_matrix: Float[Array, "3 3"]
 
@@ -84,21 +103,25 @@ class HomogenuousTransformer(eqx.Module, strict=True):
         self.inv_matrix = jnp.linalg.pinv(self.matrix)
 
     def inverse_direction(self, x):
+        """Direction: from global coordinate system to local."""
         homo_dir = jnp.array([x[0], x[1], 0.0])
         transformed = self.inv_matrix @ homo_dir
         return jnp.array([transformed[0], transformed[1]])
 
     def forward_direction(self, x):
+        """Direction: from local coordinate system to global."""
         homo_dir = jnp.array([x[0], x[1], 0.0])
         transformed = self.matrix @ homo_dir
         return jnp.array([transformed[0], transformed[1]])
 
     def inverse_vector(self, x):
+        """Vector: from global coordinate system to local."""
         homo_dir = jnp.array([x[0], x[1], 1.0])
         transformed = self.inv_matrix @ homo_dir
         return jnp.array([transformed[0], transformed[1]]) / transformed[2]
 
     def forward_vector(self, x):
+        """Vector: from local coordinate system to global"""
         homo_dir = jnp.array([x[0], x[1], 1.0])
         transformed = self.matrix @ homo_dir
         return jnp.array([transformed[0], transformed[1]]) / transformed[2]
