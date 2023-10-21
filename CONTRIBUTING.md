@@ -4,9 +4,9 @@ Contributions (pull requests) are very welcome! Here's how to get started.
 
 ---
 
-First fork the library on GitHub.
+If you don't work for DelftMercurians (i.e. don't have write access to the repository) for the library on GitHub.
 
-Then clone and install the library in development mode:
+Then clone and install the project in development mode:
 
 ```bash
 git clone https://github.com/DelftMercurians/cotix

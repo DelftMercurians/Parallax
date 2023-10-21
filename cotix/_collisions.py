@@ -1,3 +1,8 @@
+"""
+Implementations of EPA and GJK, and neat function-style interfaces to access them.
+"""
+
+
 import equinox as eqx
 import jax
 from jax import numpy as jnp, random as jr
@@ -13,8 +18,8 @@ from ._geometry_utils import (
 
 
 def _get_collision_simplex(
-    A_support_fn: SupportFn,
-    B_support_fn: SupportFn,
+    a_support_fn: SupportFn,
+    b_support_fn: SupportFn,
     initial_direction: Float[Array, "2"],
 ):
     # TODO: test weird cases; use the direction between centers as the starting one
@@ -23,9 +28,9 @@ def _get_collision_simplex(
     simplex = jnp.zeros((3, 2))
     # .at[0] inside jit is inplace -> no performance hit
     simplex = simplex.at[0].set(
-        minkowski_diff(A_support_fn, B_support_fn, initial_direction)
+        minkowski_diff(a_support_fn, b_support_fn, initial_direction)
     )
-    simplex = simplex.at[1].set(minkowski_diff(A_support_fn, B_support_fn, -simplex[0]))
+    simplex = simplex.at[1].set(minkowski_diff(a_support_fn, b_support_fn, -simplex[0]))
 
     def reverse_simplex(simplex, direction):
         tmp = simplex[0]
@@ -48,7 +53,7 @@ def _get_collision_simplex(
     )
 
     # the last point is computed only after we have correct direction
-    c = minkowski_diff(A_support_fn, B_support_fn, direction)
+    c = minkowski_diff(a_support_fn, b_support_fn, direction)
     simplex = simplex.at[2].set(c)
 
     # lax while loop:
@@ -70,7 +75,7 @@ def _get_collision_simplex(
         )
 
         # get the point in the new direction
-        c = minkowski_diff(A_support_fn, B_support_fn, direction)
+        c = minkowski_diff(a_support_fn, b_support_fn, direction)
 
         simplex = simplex.at[2].set(c)
 
@@ -100,7 +105,7 @@ def _get_collision_simplex(
     value = jax.lax.cond(
         is_point_in_triangle(jnp.zeros((2,)), simplex[0], simplex[1], simplex[2]),
         lambda x: x,
-        lambda x: jnp.zeros((3, 2)),
+        lambda _: jnp.zeros((3, 2)),
         simplex,
     )
 
@@ -108,11 +113,11 @@ def _get_collision_simplex(
 
 
 def _get_closest_minkowski_diff(
-    A_support_fn: SupportFn,
-    B_support_fn: SupportFn,
+    a_support_fn: SupportFn,
+    b_support_fn: SupportFn,
     simplex: Float[Array, "3 2"],
     solver_iterations,
-):
+) -> Float[Array, "2"]:
     # EPA (expanding polytope algorithm) forces us to have 'dynamic size' arrays.
     # JAX does not support dynamic size arrays. But we can cheat, as per usual, and just
     # use fixed size array, of let's say, 20 vertices, which will guarantee high enough
@@ -162,7 +167,7 @@ def _get_closest_minkowski_diff(
         return (edge, edge_index)
 
     def cond_fn(x):
-        last_edge, new_point, _, index, edges, prev_edge = x
+        last_edge, new_point, _, _, _, prev_edge = x
         # if the edge is really small -> finish
         c1 = jnp.sum((last_edge[0] - last_edge[1]) ** 2) > 1e-9
 
@@ -193,7 +198,7 @@ def _get_closest_minkowski_diff(
         normal = normal / (
             jnp.absolute(normal[0]) + jnp.absolute(normal[1])
         )  # TODO: remove this renormalization
-        new_point = minkowski_diff(A_support_fn, B_support_fn, normal)
+        new_point = minkowski_diff(a_support_fn, b_support_fn, normal)
         # lets replace current edge with edge[0], new point:
         edges = edges.at[best_edge_index].set(jnp.array([best_edge[0], new_point]))
         # and insert in the end new_point, edge[1]
@@ -209,7 +214,7 @@ def _get_closest_minkowski_diff(
 
     best_edge, index = get_closest_edge_to_origin(edges)
 
-    best_edge, best_point, _, i, edges, prev_best_edge = eqx.internal.while_loop(
+    best_edge, _, _, _, edges, prev_best_edge = eqx.internal.while_loop(
         cond_fn,
         body_fn,
         (best_edge, simplex[2], index, jnp.array(0), edges, edges[0]),
@@ -226,23 +231,28 @@ def _get_closest_minkowski_diff(
 
 # Now, lets define the functions that are available to users
 def check_for_collision_convex(
-    support_A: SupportFn,
-    support_B: SupportFn,
-    initial_direction: Float[Array, "2"] = None,
+    support_a: SupportFn,
+    support_b: SupportFn,
+    initial_direction: Float[Array, "2"] = jnp.array([jnp.nan, jnp.nan]),
     key=None,
 ):
-    if initial_direction is None and key is None:
-        initial_direction = random_direction(jr.PRNGKey(1))
-    elif initial_direction is None:
-        initial_direction = random_direction(key)
-    elif key is not None and initial_direction is not None:
-        initial_direction = random_direction(key) * 0.1 + initial_direction * 0.9
-    else:
-        initial_direction = (
-            random_direction(jr.PRNGKey(1)) * 0.1 + initial_direction * 0.9
-        )
+    """
+    Applies GJK algorithm given two support functions (like real Callables),
+    and optionally a starting direction.
+    """
+    if key is None:
+        key = jr.PRNGKey(1)
 
-    simplex = _get_collision_simplex(support_A, support_B, initial_direction)
+    def rnd():
+        return random_direction(key)
+
+    def rnd_plus():
+        return random_direction(key) * 0.1 + initial_direction * 0.9
+
+    initial_direction = jax.lax.cond(
+        jnp.any(jnp.isnan(initial_direction)), rnd, rnd_plus
+    )
+    simplex = _get_collision_simplex(support_a, support_b, initial_direction)
     return jax.lax.cond(
         jnp.all(simplex == jnp.zeros_like(simplex)) | jnp.any(jnp.isnan(simplex)),
         lambda: (False, jnp.nan * simplex),
@@ -251,12 +261,19 @@ def check_for_collision_convex(
 
 
 def compute_penetration_vector_convex(
-    support_A: SupportFn,
-    support_B: SupportFn,
+    support_a: SupportFn,
+    support_b: SupportFn,
     simplex: Float[Array, "3 2"],
     solver_iterations=48,
 ):
+    """
+    Computes a conservative estimate of the minimum penetration
+    vector using EPA algorithm.
+
+    Minimum penetration vector is a vector of minimal length,
+    shift by which separates the bodies.
+    """
     penetration = _get_closest_minkowski_diff(
-        support_A, support_B, simplex, solver_iterations
+        support_a, support_b, simplex, solver_iterations
     )  # TODO: Decrease this value to 32
     return penetration

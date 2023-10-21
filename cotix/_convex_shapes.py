@@ -8,8 +8,16 @@ from ._geometry_utils import order_clockwise
 
 
 class Circle(AbstractConvexShape, strict=True):
+    """
+    Circular convex shape, has radius and a position.
+    """
+
     radius: Float[Array, ""] = eqx.field(converter=jnp.asarray)
     position: Float[Array, "2"] = eqx.field(converter=jnp.asarray)
+
+    def __init__(self, radius: Float[Array, ""], position: Float[Array, "2"]):
+        self.radius = radius
+        self.position = position
 
     def get_support(self, direction: Float[Array, "2"]):
         normalized_direction = direction / jnp.linalg.norm(direction)
@@ -20,6 +28,10 @@ class Circle(AbstractConvexShape, strict=True):
 
 
 class Polygon(AbstractConvexShape, strict=True):
+    """
+    A **convex** polygon that has a bunch of vertices.
+    """
+
     vertices: Float[Array, "size 2"]  # ordered clockwise
 
     def __init__(self, vertices: Float[Array, "size 2"]):
@@ -37,6 +49,10 @@ class Polygon(AbstractConvexShape, strict=True):
 
 
 class AABB(AbstractConvexShape, strict=True):
+    """
+    Axis aligned bounding box described by min and max corner coordinates
+    """
+
     min: Float[Array, "2"]
     max: Float[Array, "2"]
 
