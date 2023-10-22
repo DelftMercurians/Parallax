@@ -48,6 +48,9 @@ class AbstractBody(eqx.Module, strict=True):
         """Returns boolean, whether there is a collision with another body."""
         return self.shape.collides_with(other.shape)
 
+    def possibly_collides_with(self, other):
+        return self.shape.possibly_collides_with(other.shape)
+
     def set_mass(self, mass: Float[Array, ""]):
         """Sets the mass (a scalar) of the body."""
         return eqx.tree_at(lambda x: x.mass, self, mass)

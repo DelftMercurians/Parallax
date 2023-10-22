@@ -9,26 +9,11 @@ from ._bodies import AbstractBody
 
 class AbstractPhysicsSolver(eqx.Module, strict=True):
     @abc.abstractmethod
-    def set_structure(self, structure):
-        """
-        Setup the structure of the solver, in case it
-        needs some complex initialization of the parameters.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
     def step(self, bodies, dt: Float[Array, ""]):
         raise NotImplementedError
 
 
 class ExplicitEulerPhysics(AbstractPhysicsSolver, strict=True):
-    def set_structure(self, structure):
-        """
-        Explicit Euler physics solver does not need any initialization:
-        it just applies velocities to positions, nothing more, nothing less
-        """
-        return self
-
     def _single_body_step(self, body: AbstractBody, dt: Float[Array, ""]):
         new_body = body
 

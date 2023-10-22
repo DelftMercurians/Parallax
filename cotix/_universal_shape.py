@@ -7,8 +7,9 @@ import jax
 from jax import numpy as jnp, tree_util as jtu
 from jaxtyping import Array, Float
 
-from ._abstract_shapes import AbstractShape, SupportFn
+from ._abstract_shapes import AbstractConvexShape, AbstractShape, SupportFn
 from ._collisions import check_for_collision_convex, compute_penetration_vector_convex
+from ._convex_shapes import AABB
 from ._geometry_utils import HomogenuousTransformer
 
 
@@ -21,10 +22,10 @@ class UniversalShape(eqx.Module, strict=True):
     coordinate systems
     """
 
-    parts: list[AbstractShape]
+    parts: list[AbstractConvexShape]
     _transformer: HomogenuousTransformer
 
-    def __init__(self, *shapes: AbstractShape):
+    def __init__(self, *shapes: AbstractConvexShape):
         self.parts = [*shapes]
         self._transformer = HomogenuousTransformer()
 
@@ -70,6 +71,7 @@ class UniversalShape(eqx.Module, strict=True):
         """
         Returns true if we collide with another shape.
         """
+        # TODO: reduce compilation speed with using tree map
         final_res = False
         final_simplex = jnp.zeros((3, 2))
         partA = self.parts[0]
@@ -88,6 +90,9 @@ class UniversalShape(eqx.Module, strict=True):
                 )
                 final_res |= res
         return final_res, (final_simplex, partA, partB)
+
+    def possibly_collides_with(self, other):
+        return AABB.collides(AABB.of_universal(self), AABB.of_universal(other))
 
     def penetration_depth(self, other, metadata, solver_iterations=48):
         """
