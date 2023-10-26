@@ -70,16 +70,21 @@ def test_circle_hits_circle_elastic():
             ~res_collision,
             jnp.linalg.norm(penetration2) < 1e-3 * jnp.linalg.norm(penetration1),
         )
-        # wither the collision was resolved, or the balls are moving apart
+        # either the collision was resolved, or the balls are moving apart
         return (
-            v1_away
-            & v2_away
-            & res_first_collision
-            & (jnp.logical_xor(no_collision, moving_apart))
+            (v1_away & v2_away),
+            res_first_collision,
+            jnp.logical_xor(no_collision, moving_apart),
         )
 
     N = 1000
     f = jax.vmap(f)
-    out = f(jr.split(key, N))
+    velocities_away, was_collision, collision_resolved_xor_didnt_have_to_be = f(
+        jr.split(key, N)
+    )
 
-    assert jnp.all(out)
+    assert jnp.all(was_collision), "there wasnt a collision"
+    assert jnp.all(velocities_away), "velocities arent away"
+    assert jnp.all(
+        collision_resolved_xor_didnt_have_to_be
+    ), "collision was not resolved, or was resolved unnecessarily"

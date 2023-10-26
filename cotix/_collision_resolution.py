@@ -39,33 +39,55 @@ def _resolve_collision_checked(
 def _resolve_collision(
     body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
 ) -> Tuple[AbstractBody, AbstractBody]:
-    # todo: we need to determine the elasticity of the collision.
-    #  probably based on the body properties
-    # todo: angular momentum
-
-    elasticity = 1
+    elasticity = body1.elasticity * body2.elasticity
 
     # change coordinate system from (x, y) to (q, r)
-    # where q is the line along epa_vector and r is perpendicular to it
+    # where [0] is the line along epa_vector and [1] is perpendicular to it
     unit_collision_vector = epa_vector / jnp.linalg.norm(epa_vector)
     perpendicular = perpendicular_vector(unit_collision_vector)
     change_of_basis = jnp.array([unit_collision_vector, perpendicular])
     change_of_basis_inv = jnp.linalg.inv(change_of_basis)
 
-    v1q = jnp.dot(body1.velocity, unit_collision_vector)
-    v1r = jnp.dot(body1.velocity, perpendicular)  # stays constant
-    v2q = jnp.dot(body2.velocity, unit_collision_vector)
-    v2r = jnp.dot(body2.velocity, perpendicular)  # stays constant
+    v1_col_basis = change_of_basis @ body1.velocity
+    v2_col_basis = change_of_basis @ body2.velocity
 
-    v1q_new, v2q_new = _1d_elastic_collision_velocities(
-        body1.mass, body2.mass, v1q, v2q
+    v_rel = v1_col_basis - v2_col_basis
+    col_impulse = -(1 + elasticity) / (body1.mass + body2.mass) * v_rel
+
+    v1_new_col_basis = v1_col_basis + col_impulse / body1.mass
+    v2_new_col_basis = v2_col_basis - col_impulse / body2.mass
+
+    # the contact point is set to be exactly between
+    # furthest (penetrating) points of the bodies along the collision direction
+    contact_point = (
+        body1.shape.get_global_support(unit_collision_vector)
+        + body2.shape.get_global_support(-unit_collision_vector)
+    ) / 2
+
+    r1 = contact_point - body1.get_center_of_mass()
+    r2 = contact_point - body2.get_center_of_mass()
+
+    # ok so there is a cross product solution,
+    # (which should work identically to the one below),
+    # but i dont think it is intuitive,
+    # so im gonna do it manually with the lever arm computation
+    # # 2d cross product is v0.x * v1.y - v0.y * v1.x
+    # omega1_new = body1.angular_velocity + inv_I1 * jnp.cross(r1, col_impulse)
+    # omega2_new = body2.angular_velocity - inv_I2 * jnp.cross(r2, col_impulse)
+
+    lever_arm1 = jnp.dot(r1, perpendicular)
+    lever_arm2 = jnp.dot(r2, perpendicular)
+
+    # col_impulse[0] is along collision normal
+    body1 = body1.set_angular_velocity(
+        body1.angular_velocity + (lever_arm1 * col_impulse[0]) / body1.inertia
+    )
+    body2 = body2.set_angular_velocity(
+        body2.angular_velocity - (lever_arm2 * col_impulse[0]) / body2.inertia
     )
 
-    v1qr_new = jnp.array([v1q_new * elasticity, v1r])
-    v2qr_new = jnp.array([v2q_new * elasticity, v2r])
-
-    v1_new = jnp.matmul(change_of_basis_inv, v1qr_new)
-    v2_new = jnp.matmul(change_of_basis_inv, v2qr_new)
+    v1_new = change_of_basis_inv @ v1_new_col_basis
+    v2_new = change_of_basis_inv @ v2_new_col_basis
 
     body1 = body1.set_velocity(v1_new)
     body2 = body2.set_velocity(v2_new)

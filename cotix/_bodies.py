@@ -29,6 +29,8 @@ class AbstractBody(eqx.Module, strict=True):
     angle: AbstractVar[Float[Array, ""]]
     angular_velocity: AbstractVar[Float[Array, ""]]
 
+    elasticity: AbstractVar[Float[Array, ""]]
+
     shape: AbstractVar[UniversalShape]
 
     def update_transform(self):
@@ -76,6 +78,13 @@ class AbstractBody(eqx.Module, strict=True):
         """Replaces the shape with any other shape: not recommended to use."""
         return eqx.tree_at(lambda x: x.shape, self, shape)
 
+    def get_center_of_mass(self):
+        return self.position
+
+    def get_mass_matrix(self):
+        # it is a scalar since we are in 2d, so there is 1 axis of rotation
+        return self.inertia
+
     def __invariant__(self):
         return (
             # Checks for nans
@@ -109,6 +118,8 @@ class Ball(AbstractBody, strict=True):
     angle: Float[Array, ""]
     angular_velocity: Float[Array, ""]
 
+    elasticity: Float[Array, ""]
+
     shape: UniversalShape
 
     def __init__(self, mass, velocity, shape):
@@ -120,6 +131,8 @@ class Ball(AbstractBody, strict=True):
 
         self.angle = jnp.array(0.0)
         self.angular_velocity = jnp.array(0.0)
+
+        self.elasticity = jnp.array(1.0)
 
         self.shape = shape
 
