@@ -60,7 +60,8 @@ class AbstractBody(eqx.Module, strict=True):
 
     def set_position(self, position: Float[Array, "2"]):
         """Sets position of the center of mass of the body."""
-        return eqx.tree_at(lambda x: x.position, self, position)
+        tmp = eqx.tree_at(lambda x: x.position, self, position)
+        return tmp.update_transform()
 
     def set_velocity(self, velocity: Float[Array, "2"]):
         """Sets velocity of the center of mass of the body."""
@@ -68,7 +69,8 @@ class AbstractBody(eqx.Module, strict=True):
 
     def set_angle(self, angle: Float[Array, ""]):
         """Sets the angle of rotation around its center of mass."""
-        return eqx.tree_at(lambda x: x.angle, self, angle)
+        tmp = eqx.tree_at(lambda x: x.angle, self, angle)
+        return tmp.update_transform()
 
     def set_angular_velocity(self, angular_velocity: Float[Array, ""]):
         """Sets the rate of change of bodys angle."""
@@ -122,11 +124,17 @@ class Ball(AbstractBody, strict=True):
 
     shape: UniversalShape
 
-    def __init__(self, mass, velocity, shape):
-        self.mass = mass
-        self.inertia = mass
+    def __init__(self, mass, position, velocity, shape):
+        # check that the shape is a circle here
+        if not (isinstance(shape.parts[0], Circle) and len(shape.parts) == 1):
+            raise ValueError("Ball universal shape must be a circle")
 
-        self.position = jnp.zeros((2,))
+        self.mass = mass
+        self.inertia = (
+            2 * (mass * shape.parts[0].radius ** 2) / 5
+        )  # inertia of a solid ball
+
+        self.position = position
         self.velocity = velocity
 
         self.angle = jnp.array(0.0)
@@ -135,6 +143,9 @@ class Ball(AbstractBody, strict=True):
         self.elasticity = jnp.array(1.0)
 
         self.shape = shape
+        self.shape = self.shape.update_transform(
+            angle=self.angle, position=self.position
+        )
 
     @staticmethod
     def make_default():

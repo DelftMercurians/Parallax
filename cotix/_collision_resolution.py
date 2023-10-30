@@ -16,12 +16,17 @@ from cotix._geometry_utils import perpendicular_vector
 def _split_bodies(
     body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
 ) -> Tuple[AbstractBody, AbstractBody]:
+    # it may be not good idea to split 100% of the penetration,
+    #   but we can change that later
+    split_portion = 1.0
     # lets apply translation to both bodies, taking their mass into account
     body1 = body1.set_position(
-        body1.position + epa_vector * (body2.mass / (body1.mass + body2.mass))
+        body1.position
+        + split_portion * epa_vector * (body2.mass / (body1.mass + body2.mass))
     )
     body2 = body2.set_position(
-        body2.position - epa_vector * (body1.mass / (body1.mass + body2.mass))
+        body2.position
+        - split_portion * epa_vector * (body1.mass / (body1.mass + body2.mass))
     )
     return body1, body2
 
@@ -48,35 +53,71 @@ def _resolve_collision(
     change_of_basis = jnp.array([unit_collision_vector, perpendicular])
     change_of_basis_inv = jnp.linalg.inv(change_of_basis)
 
+    # everything below should be in the new coordinate system
+    change_of_basis @ unit_collision_vector
+    perpendicular_new_basis = change_of_basis @ perpendicular
     v1_col_basis = change_of_basis @ body1.velocity
     v2_col_basis = change_of_basis @ body2.velocity
 
     v_rel = v1_col_basis - v2_col_basis
-    col_impulse = -(1 + elasticity) / (body1.mass + body2.mass) * v_rel
-
-    v1_new_col_basis = v1_col_basis + col_impulse / body1.mass
-    v2_new_col_basis = v2_col_basis - col_impulse / body2.mass
 
     # the contact point is set to be exactly between
-    # furthest (penetrating) points of the bodies along the collision direction
+    # furthest (penetrating) points of the bodies
+    #   along the collision direction
+    # get_global_support doesnt know about the new basis,
+    # so we use a vector from the old basis
     contact_point = (
         body1.shape.get_global_support(unit_collision_vector)
         + body2.shape.get_global_support(-unit_collision_vector)
     ) / 2
+    contact_point = change_of_basis @ contact_point
 
-    r1 = contact_point - body1.get_center_of_mass()
-    r2 = contact_point - body2.get_center_of_mass()
+    relative_contact_point1 = (
+        contact_point - change_of_basis @ body1.get_center_of_mass()
+    )
+    relative_contact_point2 = (
+        contact_point - change_of_basis @ body2.get_center_of_mass()
+    )
 
-    # ok so there is a cross product solution,
-    # (which should work identically to the one below),
-    # but i dont think it is intuitive,
-    # so im gonna do it manually with the lever arm computation
-    # # 2d cross product is v0.x * v1.y - v0.y * v1.x
-    # omega1_new = body1.angular_velocity + inv_I1 * jnp.cross(r1, col_impulse)
-    # omega2_new = body2.angular_velocity - inv_I2 * jnp.cross(r2, col_impulse)
+    lever_arm1 = jnp.dot(relative_contact_point1, perpendicular_new_basis)
+    lever_arm2 = jnp.dot(relative_contact_point2, perpendicular_new_basis)
 
-    lever_arm1 = jnp.dot(r1, perpendicular)
-    lever_arm2 = jnp.dot(r2, perpendicular)
+    # jax.debug.print(
+    #     "relative_contact_points: "
+    #     "{relative_contact_point1}, {relative_contact_point2}. "
+    #     "perpendicular: {perpendicular}, "
+    #     "arms: {lever_arm1}, {lever_arm2}. \n"
+    #     "center1: {center1}, center2: {center2}. "
+    #     "contact_point: {contact_point}. \n"
+    #     "global_supports {sup1}, {sup2}. "
+    #     "collision_unit_vector {unit_collision_vector}. \n",
+    #     relative_contact_point1=relative_contact_point1,
+    #     relative_contact_point2=relative_contact_point2,
+    #     perpendicular=perpendicular_new_basis,
+    #     lever_arm1=lever_arm1,
+    #     lever_arm2=lever_arm2,
+    #     center1=body1.get_center_of_mass(),
+    #     center2=body2.get_center_of_mass(),
+    #     contact_point=change_of_basis_inv @ contact_point,
+    #     sup1=body1.shape.get_global_support(unit_collision_vector),
+    #     sup2=body2.shape.get_global_support(-unit_collision_vector),
+    #     unit_collision_vector=unit_collision_vector,
+    # )
+
+    # impulse computation is in accordance with
+    # https://github.com/knyazer/RSS/blob/
+    # 1246e03c5950a5549a128fbce97c7bd402f9bed7/engine/source/env/World.cpp#L87
+
+    # inertia is kg * m^2, so this is kg^-1
+    impulseFactor1 = (1 / body1.mass) + (lever_arm1**2) / body1.inertia
+    impulseFactor2 = (1 / body2.mass) + (lever_arm2**2) / body2.inertia
+
+    # this is a vector because v_rel is a vector
+    # units are kg * m / s
+    col_impulse = -(1 + elasticity) * v_rel / (impulseFactor1 + impulseFactor2)
+
+    v1_new_col_basis = v1_col_basis + col_impulse / body1.mass
+    v2_new_col_basis = v2_col_basis - col_impulse / body2.mass
 
     # col_impulse[0] is along collision normal
     body1 = body1.set_angular_velocity(

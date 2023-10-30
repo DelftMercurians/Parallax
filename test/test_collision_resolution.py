@@ -24,8 +24,9 @@ def test_circle_hits_circle_elastic():
         # guarantee a collision
         r2 = jr.uniform(key4, minval=(dist - r1) * 1.05, maxval=(dist - r1) * 1.15)
 
-        shape1 = Circle(r1, p1)
-        shape2 = Circle(r2, p2)
+        zero_position = jnp.zeros((2,))
+        shape1 = Circle(r1, zero_position)
+        shape2 = Circle(r2, zero_position)
 
         # velocities into another ball
         v1 = jr.uniform(key5, (2,)) * 2 * (p2 - p1)
@@ -37,54 +38,97 @@ def test_circle_hits_circle_elastic():
         v1 = v1 * moving_multiplier
         v2 = v2 * moving_multiplier
 
-        body1 = Ball(jnp.array(1.0), v1, UniversalShape(shape1))
-        body2 = Ball(jnp.array(1.0), v2, UniversalShape(shape2))
+        body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
+        body2 = Ball(jnp.array(1.0), p2, v2, UniversalShape(shape2))
 
-        dir = shape1.get_center() - shape2.get_center()
-
+        circle1_support = body1.shape.wrap_local_support(
+            body1.shape.parts[0].get_support
+        )
+        circle2_support = body2.shape.wrap_local_support(
+            body2.shape.parts[0].get_support
+        )
         res_first_collision, simplex = check_for_collision_convex(
-            shape1.get_support, shape2.get_support, dir
+            circle1_support,
+            circle2_support,
         )
-        penetration1 = compute_penetration_vector_convex(
-            shape1.get_support, shape2.get_support, simplex
+        penetration_before = compute_penetration_vector_convex(
+            circle1_support, circle2_support, simplex
         )
 
-        body1, body2 = _resolve_collision_checked(body1, body2, penetration1)
+        body1, body2 = _resolve_collision_checked(body1, body2, penetration_before)
 
-        total_position1 = body1.shape.parts[0].position + body1.position
-        total_position2 = body2.shape.parts[0].position + body2.position
-        new_shape1 = Circle(body1.shape.parts[0].radius, total_position1)
-        new_shape2 = Circle(body2.shape.parts[0].radius, total_position2)
-        dir = new_shape1.get_center() - new_shape2.get_center()
         res_collision, simplex = check_for_collision_convex(
-            new_shape1.get_support, new_shape2.get_support, dir
+            body1.shape.get_global_support,
+            body2.shape.get_global_support,
         )
-        penetration2 = compute_penetration_vector_convex(
-            new_shape1.get_support, new_shape2.get_support, simplex
+        penetration_after = compute_penetration_vector_convex(
+            body1.shape.get_global_support, body2.shape.get_global_support, simplex
         )
 
-        # should be no collision and velocities away from another ball
-        v1_away = jnp.dot(body1.velocity, total_position2 - total_position1) <= 0
-        v2_away = jnp.dot(body2.velocity, total_position1 - total_position2) <= 0
+        # velocities are such that the distance between balls is increasing
+        velocities_away = (
+            jnp.dot(body1.velocity - body2.velocity, body1.position - body2.position)
+            >= 0
+        )
         no_collision = jnp.logical_or(
             ~res_collision,
-            jnp.linalg.norm(penetration2) < 1e-3 * jnp.linalg.norm(penetration1),
+            jnp.linalg.norm(penetration_after)
+            < 1e-3 * jnp.linalg.norm(penetration_before),
         )
         # either the collision was resolved, or the balls are moving apart
         return (
-            (v1_away & v2_away),
+            velocities_away,
             res_first_collision,
             jnp.logical_xor(no_collision, moving_apart),
+            jnp.array([p1, p2, v1, v2, [r1, r2], penetration_before, [dist, dist]]),
+            jnp.array(
+                [
+                    body1.position,
+                    body2.position,
+                    body1.velocity,
+                    body2.velocity,
+                    penetration_after,
+                ]
+            ),
         )
 
     N = 1000
     f = jax.vmap(f)
-    velocities_away, was_collision, collision_resolved_xor_didnt_have_to_be = f(
-        jr.split(key, N)
+    (
+        velocities_away,
+        was_collision,
+        collision_resolved_xor_didnt_have_to_be,
+        start_info,
+        end_info,
+    ) = f(jr.split(key, N))
+    all_conditions = (
+        velocities_away & was_collision & collision_resolved_xor_didnt_have_to_be
     )
+    start_useful = start_info[~all_conditions]
+    end_useful = end_info[~all_conditions]
+    if end_useful.shape[0] != 0:
+        jnp.set_printoptions(suppress=True)
+        print(f"\ntotal wrong {end_useful.shape[0] / N}")
+    for i in range(end_useful.shape[0]):
+        print()
+        print(f"start position 1: {start_useful[i, 0]}")
+        print(f"start position 2: {start_useful[i, 1]}")
+        print(f"end position 1: {end_useful[i, 0]}")
+        print(f"end position 2: {end_useful[i, 1]}")
+        print(f"start velocity 1: {start_useful[i, 2]}")
+        print(f"start velocity 2: {start_useful[i, 3]}")
+        print(f"end velocity 1: {end_useful[i, 2]}")
+        print(f"end velocity 2: {end_useful[i, 3]}")
+        print(f"radius 1: {start_useful[i, 4][0]}")
+        print(f"radius 2: {start_useful[i, 4][1]}")
+        print(f"distance: {start_useful[i, 6][0]}")
+        print(f"end position difference: {end_useful[i, 0] - end_useful[i, 1]}")
+        print(f"end velocity difference: {end_useful[i, 2] - end_useful[i, 3]}")
+        print(f"penetration before: {start_useful[i, 5]}")
+        print(f"penetration after: {end_useful[i, 4]}")
 
     assert jnp.all(was_collision), "there wasnt a collision"
-    assert jnp.all(velocities_away), "velocities arent away"
     assert jnp.all(
         collision_resolved_xor_didnt_have_to_be
     ), "collision was not resolved, or was resolved unnecessarily"
+    assert jnp.all(velocities_away), "velocities arent away"
