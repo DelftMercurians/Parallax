@@ -19,7 +19,7 @@ def _split_bodies(
     # it may be not good idea to split 100% of the penetration,
     #   but we can change that later
     split_portion = 1.0
-    # lets apply translation to both bodies, taking their mass into account
+    # let's apply translation to both bodies, taking their mass into account
     body1 = body1.set_position(
         body1.position
         + split_portion * epa_vector * (body2.mass / (body1.mass + body2.mass))
@@ -67,8 +67,8 @@ def _resolve_collision(
     # get_global_support doesnt know about the new basis,
     # so we use a vector from the old basis
     contact_point = (
-        body1.shape.get_global_support(unit_collision_vector)
-        + body2.shape.get_global_support(-unit_collision_vector)
+        body1.shape.get_global_support(-unit_collision_vector)
+        + body2.shape.get_global_support(unit_collision_vector)
     ) / 2
     contact_point = change_of_basis @ contact_point
 
@@ -83,10 +83,10 @@ def _resolve_collision(
     lever_arm2 = jnp.dot(relative_contact_point2, perpendicular_new_basis)
 
     # jax.debug.print(
-    #     "relative_contact_points: "
+    #     "\nrelative_contact_points: "
     #     "{relative_contact_point1}, {relative_contact_point2}. "
     #     "perpendicular: {perpendicular}, "
-    #     "arms: {lever_arm1}, {lever_arm2}. \n"
+    #     "lever arms: {lever_arm1}, {lever_arm2}. \n"
     #     "center1: {center1}, center2: {center2}. "
     #     "contact_point: {contact_point}. \n"
     #     "global_supports {sup1}, {sup2}. "
@@ -99,8 +99,8 @@ def _resolve_collision(
     #     center1=body1.get_center_of_mass(),
     #     center2=body2.get_center_of_mass(),
     #     contact_point=change_of_basis_inv @ contact_point,
-    #     sup1=body1.shape.get_global_support(unit_collision_vector),
-    #     sup2=body2.shape.get_global_support(-unit_collision_vector),
+    #     sup1=body1.shape.get_global_support(-unit_collision_vector),
+    #     sup2=body2.shape.get_global_support(unit_collision_vector),
     #     unit_collision_vector=unit_collision_vector,
     # )
 

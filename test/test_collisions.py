@@ -8,6 +8,7 @@ from cotix._collisions import (
     compute_penetration_vector_convex,
 )
 from cotix._convex_shapes import AABB, Circle, Polygon
+from cotix._geometry_utils import angle_between
 from cotix._universal_shape import UniversalShape
 
 
@@ -235,11 +236,6 @@ def test_circle_vs_circle_epa_direction():
             a.get_support, b.get_support, simplex
         )
 
-        def angle_between(v1, v2):
-            v1_u = v1 / jnp.linalg.norm(v1)
-            v2_u = v2 / jnp.linalg.norm(v2)
-            return jnp.arccos(jnp.clip(jnp.dot(v1_u, v2_u), -1.0, 1.0))
-
         def _c1(_):
             return true_no_collision == res_no_collision
 
@@ -295,11 +291,6 @@ def test_ball_vs_ball_epa_direction():
         epa_vector = compute_penetration_vector_convex(
             body1.shape.get_global_support, body2.shape.get_global_support, simplex
         )
-
-        def angle_between(v1, v2):
-            v1_u = v1 / jnp.linalg.norm(v1)
-            v2_u = v2 / jnp.linalg.norm(v2)
-            return jnp.arccos(jnp.clip(jnp.dot(v1_u, v2_u), -1.0, 1.0))
 
         def _c1(_):
             return true_no_collision == res_no_collision

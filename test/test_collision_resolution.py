@@ -1,13 +1,14 @@
 import jax
 from jax import numpy as jnp, random as jr
 
-from cotix._bodies import Ball
+from cotix._bodies import AnyBody, Ball
 from cotix._collision_resolution import _resolve_collision_checked
 from cotix._collisions import (
     check_for_collision_convex,
     compute_penetration_vector_convex,
 )
-from cotix._convex_shapes import Circle
+from cotix._convex_shapes import Circle, Polygon
+from cotix._geometry_utils import angle_between
 from cotix._universal_shape import UniversalShape
 
 
@@ -41,6 +42,7 @@ def test_circle_hits_circle_elastic():
         body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
         body2 = Ball(jnp.array(1.0), p2, v2, UniversalShape(shape2))
 
+        # test wrap local support
         circle1_support = body1.shape.wrap_local_support(
             body1.shape.parts[0].get_support
         )
@@ -57,6 +59,7 @@ def test_circle_hits_circle_elastic():
 
         body1, body2 = _resolve_collision_checked(body1, body2, penetration_before)
 
+        # test get global support
         res_collision, simplex = check_for_collision_convex(
             body1.shape.get_global_support,
             body2.shape.get_global_support,
@@ -132,3 +135,85 @@ def test_circle_hits_circle_elastic():
         collision_resolved_xor_didnt_have_to_be
     ), "collision was not resolved, or was resolved unnecessarily"
     assert jnp.all(velocities_away), "velocities arent away"
+
+
+def test_triangle_circle_angular():
+    # todo: so this test is not passing,
+    #  because global support of the triangle along epa vector is [0.8 3.5],
+    #  but i want it to be [1.22, 2.63] (not in a vertex)
+
+    # checks angular speed as well (nonzero for the triangle)
+    zero_position = jnp.zeros((2,))
+    r1 = jnp.array(1.0)
+    shape1 = Circle(r1, zero_position)
+
+    p1 = jnp.array([2.0, 3.0])
+    # designed to be along the epa vector, into the triangle
+    v1 = jnp.array([-2.5, -1.2])
+
+    # a triangle that intersects the circle
+    # center of mass is in 0, 0 vertex,
+    # resulting rotation should be counterclockwise
+    shape2 = Polygon(jnp.array([[-1, 0], [-0.2, 2.5], [1, 0]]))
+    v2 = jnp.zeros((2,))
+    p2 = jnp.ones((2,))
+
+    body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
+    body2 = AnyBody(
+        jnp.array(1.0),
+        jnp.array(1.0),
+        p2,
+        v2,
+        jnp.array(0.0),
+        jnp.array(0.0),
+        jnp.array(0.5),
+        UniversalShape(shape2),
+    )
+
+    res_first_collision, simplex = check_for_collision_convex(
+        body1.shape.get_global_support,
+        body2.shape.get_global_support,
+    )
+    penetration_before = compute_penetration_vector_convex(
+        body1.shape.get_global_support, body2.shape.get_global_support, simplex
+    )
+
+    body1, body2 = _resolve_collision_checked(body1, body2, penetration_before)
+
+    res_collision, simplex = check_for_collision_convex(
+        body1.shape.get_global_support,
+        body2.shape.get_global_support,
+    )
+    penetration_after = compute_penetration_vector_convex(
+        body1.shape.get_global_support, body2.shape.get_global_support, simplex
+    )
+
+    # velocities are such that the distance between the shapes is increasing
+    velocities_away = (
+        jnp.dot(body1.velocity - body2.velocity, body1.position - body2.position) >= 0
+    )
+    no_collision = jnp.logical_or(
+        ~res_collision,
+        jnp.linalg.norm(penetration_after) < 1e-3 * jnp.linalg.norm(penetration_before),
+    )
+
+    epa_velocity_angle = angle_between(v1, -penetration_before)
+
+    assert (
+        epa_velocity_angle < 1e-3
+    ), "velocity is not along epa vector (so epa is wrong)"
+    assert velocities_away, "velocities arent away"
+    assert res_first_collision, "there wasnt a collision"
+    assert no_collision, "collision was not resolved"
+
+    assert (
+        abs(body1.angular_velocity) <= 1e-3
+    ), "angular velocity of the ball is not zero"
+    assert (
+        abs(body2.angular_velocity) > 1e-2
+    ), "angular velocity of the triangle is zero"
+    assert body2.angular_velocity > 0, (
+        "angular velocity of the triangle is not positive. "
+        "by convention, it should be positive "
+        "if the triangle is rotating counterclockwise"
+    )

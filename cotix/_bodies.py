@@ -125,7 +125,7 @@ class Ball(AbstractBody, strict=True):
     shape: UniversalShape
 
     def __init__(self, mass, position, velocity, shape):
-        # check that the shape is a circle here
+        # check that the shape is a circle
         if not (isinstance(shape.parts[0], Circle) and len(shape.parts) == 1):
             raise ValueError("Ball universal shape must be a circle")
 
@@ -155,6 +155,7 @@ class Ball(AbstractBody, strict=True):
         ball = Ball(
             jnp.array(1.0),
             jnp.zeros((2,)),
+            jnp.zeros((2,)),
             UniversalShape(Circle(jnp.array(0.05), jnp.zeros((2,)))),
         )
         ball = (
@@ -167,3 +168,49 @@ class Ball(AbstractBody, strict=True):
             .set_shape(UniversalShape(Circle(jnp.array(0.05), jnp.zeros((2,)))))
         )
         return ball
+
+
+class AnyBody(AbstractBody, strict=True):
+    """
+    A body with any shape. Useful for tests.
+    """
+
+    mass: Float[Array, ""]
+    inertia: Float[Array, ""]
+
+    position: Float[Array, "2"]
+    velocity: Float[Array, "2"]
+
+    angle: Float[Array, ""]
+    angular_velocity: Float[Array, ""]
+
+    elasticity: Float[Array, ""]
+
+    shape: UniversalShape
+
+    def __init__(
+        self,
+        mass,
+        inertia,
+        position,
+        velocity,
+        angle,
+        angular_velocity,
+        elasticity,
+        shape,
+    ):
+        self.mass = mass
+        self.inertia = inertia
+
+        self.position = position
+        self.velocity = velocity
+
+        self.angle = angle
+        self.angular_velocity = angular_velocity
+
+        self.elasticity = elasticity
+
+        self.shape = shape
+        self.shape = self.shape.update_transform(
+            angle=self.angle, position=self.position
+        )
