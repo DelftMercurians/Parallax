@@ -202,13 +202,22 @@ def test_triangle_circle_angular():
     )
 
     # velocities are such that the distance between the shapes is increasing
-    (jnp.dot(body1.velocity - body2.velocity, body1.position - body2.position) >= 0)
-    jnp.logical_or(
+    velocities_away = (
+        jnp.dot(body1.velocity - body2.velocity, body1.position - body2.position) >= 0
+    )
+    no_collision = jnp.logical_or(
         ~res_collision,
         jnp.linalg.norm(penetration_after) < 1e-3 * jnp.linalg.norm(penetration_before),
     )
 
-    angle_between(v1, -penetration_before)
+    epa_velocity_angle = angle_between(v1, -penetration_before)
+
+    print(
+        velocities_away
+        & res_first_collision
+        & no_collision
+        & (epa_velocity_angle < 1e-3)
+    )
 
     # assert (
     #     epa_velocity_angle < 1e-3
