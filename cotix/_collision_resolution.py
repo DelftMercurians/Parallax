@@ -5,12 +5,22 @@ Implements physics logic that resolves a simple elastic collision between two bo
 
 from typing import Tuple
 
+import equinox as eqx
 import jax.lax
 from jax import numpy as jnp
 from jaxtyping import Array, Float
 
 from cotix._bodies import AbstractBody
 from cotix._geometry_utils import perpendicular_vector
+
+
+class ContactInfo(eqx.Module):
+    penetration_vector: Float[Array, "2"]
+    contact_point: Float[Array, "2"]
+
+    def __init__(self, penetration_vector, contact_point):
+        self.penetration_vector = penetration_vector
+        self.contact_point = contact_point
 
 
 def _split_bodies(
@@ -32,23 +42,26 @@ def _split_bodies(
 
 
 def _resolve_collision_checked(
-    body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
+    body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
 ) -> Tuple[AbstractBody, AbstractBody]:
     return jax.lax.cond(
-        jnp.dot(body1.velocity - body2.velocity, epa_vector) >= 0.0,
+        jnp.dot(body1.velocity - body2.velocity, contact_info.penetration_vector)
+        >= 0.0,
         lambda: (body1, body2),
-        lambda: _resolve_collision(body1, body2, epa_vector),
+        lambda: _resolve_collision(body1, body2, contact_info),
     )
 
 
 def _resolve_collision(
-    body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
+    body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
 ) -> Tuple[AbstractBody, AbstractBody]:
+    penetration_vector = contact_info.penetration_vector
+    contact_point = contact_info.contact_point
     elasticity = body1.elasticity * body2.elasticity
 
     # change coordinate system from (x, y) to (q, r)
     # where [0] is the line along epa_vector and [1] is perpendicular to it
-    unit_collision_vector = epa_vector / jnp.linalg.norm(epa_vector)
+    unit_collision_vector = penetration_vector / jnp.linalg.norm(penetration_vector)
     perpendicular = perpendicular_vector(unit_collision_vector)
     change_of_basis = jnp.array([unit_collision_vector, perpendicular])
     change_of_basis_inv = jnp.linalg.inv(change_of_basis)
@@ -61,15 +74,12 @@ def _resolve_collision(
 
     v_rel = v1_col_basis - v2_col_basis
 
-    # the contact point is set to be exactly between
-    # furthest (penetrating) points of the bodies
-    #   along the collision direction
-    # get_global_support doesnt know about the new basis,
-    # so we use a vector from the old basis
-    contact_point = (
-        body1.shape.get_global_support(-unit_collision_vector)
-        + body2.shape.get_global_support(unit_collision_vector)
-    ) / 2
+    # contact_point = (
+    #     body1.shape.get_global_support(-unit_collision_vector)
+    #     + body2.shape.get_global_support(unit_collision_vector)
+    # ) / 2
+
+    # transform the received contact point to the new coordinate system
     contact_point = change_of_basis @ contact_point
 
     relative_contact_point1 = (
@@ -133,11 +143,5 @@ def _resolve_collision(
     body1 = body1.set_velocity(v1_new)
     body2 = body2.set_velocity(v2_new)
 
-    body1, body2 = _split_bodies(body1, body2, epa_vector)
+    body1, body2 = _split_bodies(body1, body2, penetration_vector)
     return body1, body2
-
-
-def _1d_elastic_collision_velocities(m1, m2, u1, u2):
-    v1 = ((m1 - m2) / (m1 + m2)) * u1 + ((2 * m2) / (m1 + m2)) * u2
-    v2 = ((2 * m1) / (m1 + m2)) * u1 + ((m2 - m1) / (m1 + m2)) * u2
-    return v1, v2
