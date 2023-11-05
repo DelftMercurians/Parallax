@@ -12,6 +12,58 @@ from cotix._geometry_utils import angle_between
 from cotix._universal_shape import UniversalShape
 
 
+def _default_contact_point(body1, body2, penetration_vector):
+    contact_point = (
+        body1.shape.get_global_support(-penetration_vector)
+        + body2.shape.get_global_support(penetration_vector)
+    ) / 2
+    return contact_point
+
+
+def _collision_resolution_helper(body1, body2, contact_point=None):
+    res_first_collision, simplex = check_for_collision_convex(
+        body1.shape.get_global_support,
+        body2.shape.get_global_support,
+    )
+    penetration_before = compute_penetration_vector_convex(
+        body1.shape.get_global_support, body2.shape.get_global_support, simplex
+    )
+
+    if contact_point is None:
+        contact_point = _default_contact_point(body1, body2, penetration_before)
+
+    contact_info = ContactInfo(penetration_before, contact_point)
+
+    body1, body2 = _resolve_collision_checked(body1, body2, contact_info)
+
+    # test get global support
+    res_collision, simplex = check_for_collision_convex(
+        body1.shape.get_global_support,
+        body2.shape.get_global_support,
+    )
+    penetration_after = compute_penetration_vector_convex(
+        body1.shape.get_global_support, body2.shape.get_global_support, simplex
+    )
+
+    # velocities are such that the distance between balls is increasing
+    velocities_away = (
+        jnp.dot(body1.velocity - body2.velocity, body1.position - body2.position) >= 0
+    )
+    no_collision = jnp.logical_or(
+        ~res_collision,
+        jnp.linalg.norm(penetration_after) < 1e-3 * jnp.linalg.norm(penetration_before),
+    )
+    return (
+        velocities_away,
+        res_first_collision,
+        no_collision,
+        penetration_before,
+        penetration_after,
+        body1,
+        body2,
+    )
+
+
 def test_circle_hits_circle_elastic():
     # this test is kinda weak: i dont test that the speeds are fully correct
     key = jr.PRNGKey(0)
@@ -42,53 +94,22 @@ def test_circle_hits_circle_elastic():
         body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
         body2 = Ball(jnp.array(1.0), p2, v2, UniversalShape(shape2))
 
-        # test wrap local support
-        circle1_support = body1.shape.wrap_local_support(
-            body1.shape.parts[0].get_support
-        )
-        circle2_support = body2.shape.wrap_local_support(
-            body2.shape.parts[0].get_support
-        )
-        res_first_collision, simplex = check_for_collision_convex(
-            circle1_support,
-            circle2_support,
-        )
-        penetration_before = compute_penetration_vector_convex(
-            circle1_support, circle2_support, simplex
-        )
+        (
+            velocities_away,
+            res_first_collision,
+            no_collision,
+            penetration_before,
+            penetration_after,
+            body1,
+            body2,
+        ) = _collision_resolution_helper(body1, body2)
 
-        contact_point = (
-            body1.shape.get_global_support(-penetration_before)
-            + body2.shape.get_global_support(penetration_before)
-        ) / 2
-        contact_info = ContactInfo(penetration_before, contact_point)
-
-        body1, body2 = _resolve_collision_checked(body1, body2, contact_info)
-
-        # test get global support
-        res_collision, simplex = check_for_collision_convex(
-            body1.shape.get_global_support,
-            body2.shape.get_global_support,
-        )
-        penetration_after = compute_penetration_vector_convex(
-            body1.shape.get_global_support, body2.shape.get_global_support, simplex
-        )
-
-        # velocities are such that the distance between balls is increasing
-        velocities_away = (
-            jnp.dot(body1.velocity - body2.velocity, body1.position - body2.position)
-            >= 0
-        )
-        no_collision = jnp.logical_or(
-            ~res_collision,
-            jnp.linalg.norm(penetration_after)
-            < 1e-3 * jnp.linalg.norm(penetration_before),
-        )
         # either the collision was resolved, or the balls are moving apart
         return (
             velocities_away,
             res_first_collision,
-            jnp.logical_xor(no_collision, moving_apart),
+            no_collision,
+            moving_apart,
             jnp.array([p1, p2, v1, v2, [r1, r2], penetration_before, [dist, dist]]),
             jnp.array(
                 [
@@ -106,12 +127,15 @@ def test_circle_hits_circle_elastic():
     (
         velocities_away,
         was_collision,
-        collision_resolved_xor_didnt_have_to_be,
+        collision_resolved,
+        didnt_have_to_be_resolved,
         start_info,
         end_info,
     ) = f(jr.split(key, N))
     all_conditions = (
-        velocities_away & was_collision & collision_resolved_xor_didnt_have_to_be
+        velocities_away
+        & was_collision
+        & jnp.logical_xor(collision_resolved, didnt_have_to_be_resolved)
     )
     start_useful = start_info[~all_conditions]
     end_useful = end_info[~all_conditions]
@@ -138,8 +162,11 @@ def test_circle_hits_circle_elastic():
 
     assert jnp.all(was_collision), "there wasnt a collision"
     assert jnp.all(
-        collision_resolved_xor_didnt_have_to_be
-    ), "collision was not resolved, or was resolved unnecessarily"
+        didnt_have_to_be_resolved | collision_resolved
+    ), "collision was not resolved"
+    assert jnp.all(
+        ~didnt_have_to_be_resolved | ~collision_resolved
+    ), "collision was resolved when it didnt have to be"
     assert jnp.all(velocities_away), "velocities arent away"
 
 
@@ -159,7 +186,7 @@ def test_triangle_circle_angular():
     # a triangle that intersects the circle
     # center of mass is in 0, 0 vertex,
     # resulting rotation should be counterclockwise
-    shape2 = Polygon(jnp.array([[-1, 0], [-0.2, 2.5], [1, 0]]))
+    shape2 = Polygon(jnp.array([[-1.0, 0.0], [-0.2, 2.5], [1.0, 0.0]]))
     v2 = jnp.zeros((2,))
     p2 = jnp.ones((2,))
 
@@ -169,46 +196,22 @@ def test_triangle_circle_angular():
         jnp.array(1.0),
         p2,
         v2,
-        jnp.array(0.0),
-        jnp.array(0.0),
-        jnp.array(0.5),
-        UniversalShape(shape2),
+        angle=jnp.array(0.0),
+        angular_velocity=jnp.array(0.0),
+        elasticity=jnp.array(0.5),
+        friction_coefficient=jnp.array(0.5),
+        shape=UniversalShape(shape2),
     )
 
-    res_first_collision, simplex = check_for_collision_convex(
-        body1.shape.get_global_support,
-        body2.shape.get_global_support,
-    )
-    penetration_before = compute_penetration_vector_convex(
-        body1.shape.get_global_support, body2.shape.get_global_support, simplex
-    )
-
-    # todo: get the actual contact point
-    contact_point = (
-        body1.shape.get_global_support(-penetration_before)
-        + body2.shape.get_global_support(penetration_before)
-    ) / 2
-    contact_info = ContactInfo(penetration_before, contact_point)
-
-    body1, body2 = _resolve_collision_checked(body1, body2, contact_info)
-
-    res_collision, simplex = check_for_collision_convex(
-        body1.shape.get_global_support,
-        body2.shape.get_global_support,
-    )
-    # jax.debug.print('{simplex}', simplex=simplex)
-    penetration_after = compute_penetration_vector_convex(
-        body1.shape.get_global_support, body2.shape.get_global_support, simplex
-    )
-
-    # velocities are such that the distance between the shapes is increasing
-    velocities_away = (
-        jnp.dot(body1.velocity - body2.velocity, body1.position - body2.position) >= 0
-    )
-    no_collision = jnp.logical_or(
-        ~res_collision,
-        jnp.linalg.norm(penetration_after) < 1e-3 * jnp.linalg.norm(penetration_before),
-    )
+    (
+        velocities_away,
+        res_first_collision,
+        no_collision,
+        penetration_before,
+        penetration_after,
+        body1,
+        body2,
+    ) = _collision_resolution_helper(body1, body2)
 
     epa_velocity_angle = angle_between(v1, -penetration_before)
 
@@ -237,3 +240,178 @@ def test_triangle_circle_angular():
     #     "by convention, it should be positive "
     #     "if the triangle is rotating counterclockwise"
     # )
+
+
+def test_ball_spins_after_wall():
+    r1 = jnp.array(1.2)
+    shape1 = Circle(r1, jnp.zeros((2,)))
+
+    p1 = jnp.array([2.0, 3.1])
+    v1 = jnp.array([3.0, -4.0])
+
+    # a wall such that the ball slightly penetrates it
+    shape2 = Polygon(jnp.array([[-1.0, 2.0], [4.0, 2.0], [4.0, 1.0], [-1.0, 1.0]]))
+    v2 = jnp.zeros((2,))
+    p2 = jnp.zeros((2,))
+
+    body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
+    body2 = AnyBody(
+        # wall is immovable
+        mass=jnp.array(jnp.inf),
+        inertia=jnp.array(jnp.inf),
+        position=p2,
+        velocity=v2,
+        angle=jnp.array(0.0),
+        angular_velocity=jnp.array(0.0),
+        elasticity=jnp.array(0.5),
+        friction_coefficient=jnp.array(0.5),
+        shape=UniversalShape(shape2),
+    )
+
+    contact_point = (jnp.array([2, 1.9]) + jnp.array([2, 2])) / 2
+
+    (
+        velocities_away,
+        res_first_collision,
+        no_collision,
+        penetration_before,
+        penetration_after,
+        body1,
+        body2,
+    ) = _collision_resolution_helper(body1, body2, contact_point)
+
+    assert res_first_collision, "there wasnt a collision"
+    assert no_collision, "collision was not resolved"
+    assert velocities_away, "velocities arent away"
+
+    # wall should be immovable
+    assert (
+        jnp.dot(body2.velocity, body2.velocity) == 0
+    ), "velocity of the wall is not zero"
+    assert body2.angular_velocity == 0, "angular velocity of the wall is not zero"
+
+    # ball should spin
+    assert abs(body1.angular_velocity) > 1e-2, "angular velocity of the ball is zero"
+
+    assert body1.angular_velocity < 0, (
+        "angular velocity of the ball is not negative. "
+        "by convention, it should be negative "
+        "if the body is rotating clockwise"
+    )
+
+
+def test_friction_ball_with_initial_angular_speed():
+    r1 = jnp.array(1.2)
+    shape1 = Circle(r1, jnp.zeros((2,)))
+
+    p1 = jnp.array([2.0, 3.1])
+    v1 = jnp.array([3.0, -4.0])
+
+    # a wall such that the ball slightly penetrates it
+    shape2 = Polygon(jnp.array([[-1.0, 2.0], [4.0, 2.0], [4.0, 1.0], [-1.0, 1.0]]))
+    v2 = jnp.zeros((2,))
+    p2 = jnp.zeros((2,))
+
+    body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
+    initial_angular_v = jnp.array(1.0)
+    body1 = body1.set_angular_velocity(initial_angular_v)
+    body2 = AnyBody(
+        mass=jnp.array(jnp.inf),
+        inertia=jnp.array(jnp.inf),
+        position=p2,
+        velocity=v2,
+        angle=jnp.array(0.0),
+        angular_velocity=jnp.array(0.0),
+        elasticity=jnp.array(0.5),
+        friction_coefficient=jnp.array(0.5),
+        shape=UniversalShape(shape2),
+    )
+
+    contact_point = (jnp.array([2, 1.9]) + jnp.array([2, 2])) / 2
+
+    (
+        velocities_away,
+        res_first_collision,
+        no_collision,
+        penetration_before,
+        penetration_after,
+        body1,
+        body2,
+    ) = _collision_resolution_helper(body1, body2, contact_point)
+
+    assert res_first_collision, "there wasnt a collision"
+    assert no_collision, "collision was not resolved"
+    assert velocities_away, "velocities arent away"
+
+    # wall should be immovable
+    assert (
+        jnp.dot(body2.velocity, body2.velocity) == 0
+    ), "velocity of the wall is not zero"
+    assert body2.angular_velocity == 0, "angular velocity of the wall is not zero"
+
+    # ball was spinning counterclockwise, so it should spin 'more clockwise' now
+    assert body1.angular_velocity < initial_angular_v, (
+        "angular velocity of the ball is not negative. "
+        "by convention, it should be negative "
+        "if the body is rotating clockwise"
+    )
+
+
+def test_friction_ball_with_huge_initial_angular_speed():
+    r1 = jnp.array(1.2)
+    shape1 = Circle(r1, jnp.zeros((2,)))
+
+    p1 = jnp.array([2.0, 3.1])
+    v1 = jnp.array([3.0, -4.0])
+
+    # a wall such that the ball slightly penetrates it
+    shape2 = Polygon(jnp.array([[-1.0, 2.0], [4.0, 2.0], [4.0, 1.0], [-1.0, 1.0]]))
+    v2 = jnp.zeros((2,))
+    p2 = jnp.zeros((2,))
+
+    body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
+    initial_angular_v = jnp.array(1e3)
+    body1 = body1.set_angular_velocity(initial_angular_v)
+    body2 = AnyBody(
+        mass=jnp.array(jnp.inf),
+        inertia=jnp.array(jnp.inf),
+        position=p2,
+        velocity=v2,
+        angle=jnp.array(0.0),
+        angular_velocity=jnp.array(0.0),
+        elasticity=jnp.array(0.5),
+        friction_coefficient=jnp.array(0.5),
+        shape=UniversalShape(shape2),
+    )
+
+    contact_point = (jnp.array([2, 1.9]) + jnp.array([2, 2])) / 2
+
+    (
+        velocities_away,
+        res_first_collision,
+        no_collision,
+        penetration_before,
+        penetration_after,
+        body1,
+        body2,
+    ) = _collision_resolution_helper(body1, body2, contact_point)
+
+    assert res_first_collision, "there wasnt a collision"
+    assert no_collision, "collision was not resolved"
+    assert velocities_away, "velocities arent away"
+
+    # wall should be immovable
+    assert (
+        jnp.dot(body2.velocity, body2.velocity) == 0
+    ), "velocity of the wall is not zero"
+    assert body2.angular_velocity == 0, "angular velocity of the wall is not zero"
+
+    # ball was spinning counterclockwise, so it should spin 'more clockwise' now
+    assert body1.angular_velocity < initial_angular_v, (
+        "angular velocity of the ball is not negative. "
+        "by convention, it should be negative "
+        "if the body is rotating clockwise"
+    )
+    assert body1.angular_velocity > 0, (
+        "angular velocity should still be positive, " "cause it was so large before"
+    )

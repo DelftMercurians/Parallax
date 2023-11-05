@@ -30,6 +30,7 @@ class AbstractBody(eqx.Module, strict=True):
     angular_velocity: AbstractVar[Float[Array, ""]]
 
     elasticity: AbstractVar[Float[Array, ""]]
+    friction_coefficient: AbstractVar[Float[Array, ""]]
 
     shape: AbstractVar[UniversalShape]
 
@@ -121,6 +122,7 @@ class Ball(AbstractBody, strict=True):
     angular_velocity: Float[Array, ""]
 
     elasticity: Float[Array, ""]
+    friction_coefficient: Float[Array, ""]
 
     shape: UniversalShape
 
@@ -141,6 +143,7 @@ class Ball(AbstractBody, strict=True):
         self.angular_velocity = jnp.array(0.0)
 
         self.elasticity = jnp.array(1.0)
+        self.friction_coefficient = jnp.array(1.0)
 
         self.shape = shape
         self.shape = self.shape.update_transform(
@@ -185,6 +188,7 @@ class AnyBody(AbstractBody, strict=True):
     angular_velocity: Float[Array, ""]
 
     elasticity: Float[Array, ""]
+    friction_coefficient: Float[Array, ""]
 
     shape: UniversalShape
 
@@ -197,6 +201,7 @@ class AnyBody(AbstractBody, strict=True):
         angle,
         angular_velocity,
         elasticity,
+        friction_coefficient,
         shape,
     ):
         self.mass = mass
@@ -209,6 +214,7 @@ class AnyBody(AbstractBody, strict=True):
         self.angular_velocity = angular_velocity
 
         self.elasticity = elasticity
+        self.friction_coefficient = friction_coefficient
 
         self.shape = shape
         self.shape = self.shape.update_transform(

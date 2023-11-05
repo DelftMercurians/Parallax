@@ -2,7 +2,6 @@
 Implements physics logic that resolves a simple elastic collision between two bodies.
 """
 
-
 from typing import Tuple
 
 import equinox as eqx
@@ -23,21 +22,38 @@ class ContactInfo(eqx.Module):
         self.contact_point = contact_point
 
 
+def _move_one_body(primary_body, secondary_body, split_portion, penetration_vector):
+    # if one body has mass inf, the other body should move the entire distance,
+    #   but np.inf/np.inf = nan
+    primary_body = jax.lax.cond(
+        secondary_body.mass == jnp.array(jnp.inf),
+        lambda: primary_body.set_position(
+            primary_body.position + split_portion * penetration_vector
+        ),
+        lambda: primary_body.set_position(
+            primary_body.position
+            + split_portion
+            * penetration_vector
+            * (secondary_body.mass / (primary_body.mass + secondary_body.mass))
+        ),
+    )
+    return primary_body
+
+
 def _split_bodies(
-    body1: AbstractBody, body2: AbstractBody, epa_vector: Float[Array, "2"]
+    body1: AbstractBody, body2: AbstractBody, penetration_vector: Float[Array, "2"]
 ) -> Tuple[AbstractBody, AbstractBody]:
+    body1 = eqx.error_if(
+        body1,
+        (body1.mass == jnp.array(jnp.inf)) & (body2.mass == jnp.array(jnp.inf)),
+        "Both bodies have infinite mass",
+    )
     # it may be not good idea to split 100% of the penetration,
     #   but we can change that later
     split_portion = 1.0
-    # let's apply translation to both bodies, taking their mass into account
-    body1 = body1.set_position(
-        body1.position
-        + split_portion * epa_vector * (body2.mass / (body1.mass + body2.mass))
-    )
-    body2 = body2.set_position(
-        body2.position
-        - split_portion * epa_vector * (body1.mass / (body1.mass + body2.mass))
-    )
+    # apply translation to both bodies, taking their mass into account
+    body1 = _move_one_body(body1, body2, split_portion, penetration_vector)
+    body2 = _move_one_body(body2, body1, split_portion, -penetration_vector)
     return body1, body2
 
 
@@ -58,6 +74,7 @@ def _resolve_collision(
     penetration_vector = contact_info.penetration_vector
     contact_point = contact_info.contact_point
     elasticity = body1.elasticity * body2.elasticity
+    friction_coefficient = body1.friction_coefficient * body2.friction_coefficient
 
     # change coordinate system from (x, y) to (q, r)
     # where [0] is the line along epa_vector and [1] is perpendicular to it
@@ -67,7 +84,7 @@ def _resolve_collision(
     change_of_basis_inv = jnp.linalg.inv(change_of_basis)
 
     # everything below should be in the new coordinate system
-    change_of_basis @ unit_collision_vector
+    unit_collision_new_basis = change_of_basis @ unit_collision_vector
     perpendicular_new_basis = change_of_basis @ perpendicular
     v1_col_basis = change_of_basis @ body1.velocity
     v2_col_basis = change_of_basis @ body2.velocity
@@ -89,8 +106,50 @@ def _resolve_collision(
         contact_point - change_of_basis @ body2.get_center_of_mass()
     )
 
+    # lever arms can be negative, but i think it makes sense
     lever_arm1 = jnp.dot(relative_contact_point1, perpendicular_new_basis)
     lever_arm2 = jnp.dot(relative_contact_point2, perpendicular_new_basis)
+
+    contact_point_speed1 = (
+        jnp.dot(body1.velocity, perpendicular)
+        + jnp.dot(relative_contact_point1, unit_collision_new_basis)
+        * body1.angular_velocity
+    )
+    contact_point_speed2 = (
+        jnp.dot(body2.velocity, perpendicular)
+        + jnp.dot(relative_contact_point2, unit_collision_new_basis)
+        * body2.angular_velocity
+    )
+    tangential_relative_velocity = contact_point_speed1 - contact_point_speed2
+
+    # impulse computation is in accordance with
+    # https://github.com/knyazer/RSS/blob/
+    # 1246e03c5950a5549a128fbce97c7bd402f9bed7/engine/source/env/World.cpp#L87
+
+    # inertia is kg * m^2, so this is kg^-1
+    impulseFactor1 = (1 / body1.mass) + (lever_arm1**2) / body1.inertia
+    impulseFactor2 = (1 / body2.mass) + (lever_arm2**2) / body2.inertia
+
+    # here, we only care about the collision along the collision normal
+    # units are kg * m / s
+    col_impulse = jnp.array(
+        [-(1 + elasticity) * v_rel[0] / (impulseFactor1 + impulseFactor2), 0.0]
+    )
+
+    # v1 dot perpendicular tries to be the same as v2 dot perpendicular.
+    #   clipped to be in the range [-friction_impulse_max, friction_impulse_max]
+    # this adds an impulse perpendicular to the collision normal
+    # todo: the spin can not be such that the collision point is moving
+    #  in the opposite direction along tangent with the new angular velocity
+    friction_impulse_max = friction_coefficient * jnp.abs(col_impulse[0])
+    friction_impulse = jnp.clip(
+        # I am not too sure that the formula is correct here
+        tangential_relative_velocity / (impulseFactor1 + impulseFactor2),
+        -friction_impulse_max,
+        friction_impulse_max,
+    )
+
+    col_impulse = col_impulse + perpendicular_new_basis * friction_impulse
 
     # jax.debug.print(
     #     "\nrelative_contact_points: "
@@ -100,7 +159,10 @@ def _resolve_collision(
     #     "center1: {center1}, center2: {center2}. "
     #     "contact_point: {contact_point}. \n"
     #     "global_supports {sup1}, {sup2}. "
-    #     "collision_unit_vector {unit_collision_vector}. \n",
+    #     "collision_unit_vector {unit_collision_vector}. \n"
+    #     "tangential_relative_velocity: {tangential_relative_velocity}. \n"
+    #     "friction_impulse: {friction_impulse}. \n"
+    #     "col_impulse: {col_impulse}. \n",
     #     relative_contact_point1=relative_contact_point1,
     #     relative_contact_point2=relative_contact_point2,
     #     perpendicular=perpendicular_new_basis,
@@ -112,29 +174,24 @@ def _resolve_collision(
     #     sup1=body1.shape.get_global_support(-unit_collision_vector),
     #     sup2=body2.shape.get_global_support(unit_collision_vector),
     #     unit_collision_vector=unit_collision_vector,
+    #     tangential_relative_velocity=tangential_relative_velocity,
+    #     friction_impulse=friction_impulse,
+    #     col_impulse=col_impulse,
     # )
-
-    # impulse computation is in accordance with
-    # https://github.com/knyazer/RSS/blob/
-    # 1246e03c5950a5549a128fbce97c7bd402f9bed7/engine/source/env/World.cpp#L87
-
-    # inertia is kg * m^2, so this is kg^-1
-    impulseFactor1 = (1 / body1.mass) + (lever_arm1**2) / body1.inertia
-    impulseFactor2 = (1 / body2.mass) + (lever_arm2**2) / body2.inertia
-
-    # this is a vector because v_rel is a vector
-    # units are kg * m / s
-    col_impulse = -(1 + elasticity) * v_rel / (impulseFactor1 + impulseFactor2)
 
     v1_new_col_basis = v1_col_basis + col_impulse / body1.mass
     v2_new_col_basis = v2_col_basis - col_impulse / body2.mass
 
     # col_impulse[0] is along collision normal
     body1 = body1.set_angular_velocity(
-        body1.angular_velocity + (lever_arm1 * col_impulse[0]) / body1.inertia
+        body1.angular_velocity
+        + (lever_arm1 * col_impulse[0]) / body1.inertia
+        + col_impulse[1] / body1.inertia
     )
     body2 = body2.set_angular_velocity(
-        body2.angular_velocity - (lever_arm2 * col_impulse[0]) / body2.inertia
+        body2.angular_velocity
+        - (lever_arm2 * col_impulse[0]) / body2.inertia
+        - col_impulse[1] / body2.inertia
     )
 
     v1_new = change_of_basis_inv @ v1_new_col_basis
