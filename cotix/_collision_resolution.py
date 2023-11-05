@@ -91,11 +91,6 @@ def _resolve_collision(
 
     v_rel = v1_col_basis - v2_col_basis
 
-    # contact_point = (
-    #     body1.shape.get_global_support(-unit_collision_vector)
-    #     + body2.shape.get_global_support(unit_collision_vector)
-    # ) / 2
-
     # transform the received contact point to the new coordinate system
     contact_point = change_of_basis @ contact_point
 
@@ -149,7 +144,7 @@ def _resolve_collision(
         friction_impulse_max,
     )
 
-    col_impulse = col_impulse + perpendicular_new_basis * friction_impulse
+    col_impulse = col_impulse - perpendicular_new_basis * friction_impulse
 
     # jax.debug.print(
     #     "\nrelative_contact_points: "
@@ -162,7 +157,8 @@ def _resolve_collision(
     #     "collision_unit_vector {unit_collision_vector}. \n"
     #     "tangential_relative_velocity: {tangential_relative_velocity}. \n"
     #     "friction_impulse: {friction_impulse}. \n"
-    #     "col_impulse: {col_impulse}. \n",
+    #     "col_impulse in new basis: {col_impulse}. \n"
+    #     "col_impulse original: {col_impulse_original}. \n",
     #     relative_contact_point1=relative_contact_point1,
     #     relative_contact_point2=relative_contact_point2,
     #     perpendicular=perpendicular_new_basis,
@@ -177,6 +173,7 @@ def _resolve_collision(
     #     tangential_relative_velocity=tangential_relative_velocity,
     #     friction_impulse=friction_impulse,
     #     col_impulse=col_impulse,
+    #     col_impulse_original=change_of_basis_inv @ col_impulse,
     # )
 
     v1_new_col_basis = v1_col_basis + col_impulse / body1.mass
@@ -186,13 +183,17 @@ def _resolve_collision(
     body1 = body1.set_angular_velocity(
         body1.angular_velocity
         + (lever_arm1 * col_impulse[0]) / body1.inertia
-        + col_impulse[1] / body1.inertia
+        - col_impulse[1] / body1.inertia
     )
     body2 = body2.set_angular_velocity(
         body2.angular_velocity
         - (lever_arm2 * col_impulse[0]) / body2.inertia
         - col_impulse[1] / body2.inertia
     )
+    # the col_impulse[1] is applied with the same sign to both bodies.
+    #   this is because although friction acts in the opposite directions
+    #   on the bodies, it contributes to rotation in the same direction,
+    #   as the contact point is on the opposite sides of the center of mass
 
     v1_new = change_of_basis_inv @ v1_new_col_basis
     v2_new = change_of_basis_inv @ v2_new_col_basis

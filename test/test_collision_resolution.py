@@ -1,5 +1,6 @@
 import jax
 from jax import numpy as jnp, random as jr
+from pytest_check import check  # for possible multiple assert failures
 
 from cotix._bodies import AnyBody, Ball
 from cotix._collision_resolution import _resolve_collision_checked, ContactInfo
@@ -313,7 +314,7 @@ def test_friction_ball_with_initial_angular_speed():
     p2 = jnp.zeros((2,))
 
     body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
-    initial_angular_v = jnp.array(1.0)
+    initial_angular_v = jnp.array(1.0)  # 1 is counterclockwise
     body1 = body1.set_angular_velocity(initial_angular_v)
     body2 = AnyBody(
         mass=jnp.array(jnp.inf),
@@ -350,10 +351,9 @@ def test_friction_ball_with_initial_angular_speed():
     assert body2.angular_velocity == 0, "angular velocity of the wall is not zero"
 
     # ball was spinning counterclockwise, so it should spin 'more clockwise' now
+    # no abs() here because the velocity can be large and negative
     assert body1.angular_velocity < initial_angular_v, (
-        "angular velocity of the ball is not negative. "
-        "by convention, it should be negative "
-        "if the body is rotating clockwise"
+        "angular velocity of the ball did not decrease " "after collision with a wall"
     )
 
 
@@ -406,12 +406,80 @@ def test_friction_ball_with_huge_initial_angular_speed():
     ), "velocity of the wall is not zero"
     assert body2.angular_velocity == 0, "angular velocity of the wall is not zero"
 
-    # ball was spinning counterclockwise, so it should spin 'more clockwise' now
-    assert body1.angular_velocity < initial_angular_v, (
-        "angular velocity of the ball is not negative. "
-        "by convention, it should be negative "
-        "if the body is rotating clockwise"
+    # ball was spinning counterclockwise, so it should spin 'more clockwise' now,
+    assert abs(body1.angular_velocity) < abs(
+        initial_angular_v
+    ), "angular velocity of the ball did not decrease "
+    assert (
+        body1.angular_velocity > 0
+    ), "angular velocity should still be positive, cause it was so large before"
+
+
+def test_friction_affects_center_of_mass_velocity():
+    r1 = jnp.array(1.0)
+    shape1 = Circle(r1, jnp.zeros((2,)))
+
+    p1 = jnp.array([1.0, 1.9])
+    v1 = jnp.array([0.0, -3.0])
+
+    # a wall such that the ball slightly penetrates it
+    shape2 = Polygon(jnp.array([[-1.0, 1.0], [1.0, 1.0], [0.01, -1.0]]))
+    v2 = jnp.array([0.0, 1.0])
+    p2 = jnp.array([1.0, 0.0])
+
+    body1 = Ball(jnp.array(5.0), p1, v1, UniversalShape(shape1))
+    initial_angular_v = jnp.array(-10.0)  # spinning clockwise
+    body1 = body1.set_angular_velocity(initial_angular_v)
+    body2 = AnyBody(
+        mass=jnp.array(2.0),
+        inertia=jnp.array(1.0),
+        position=p2,
+        velocity=v2,
+        angle=jnp.array(0.0),
+        angular_velocity=jnp.array(0.0),
+        elasticity=jnp.array(0.5),
+        friction_coefficient=jnp.array(0.5),
+        shape=UniversalShape(shape2),
     )
-    assert body1.angular_velocity > 0, (
-        "angular velocity should still be positive, " "cause it was so large before"
-    )
+
+    contact_point = (jnp.array([1, 0.9]) + jnp.array([1, 1])) / 2
+
+    (
+        velocities_away,
+        res_first_collision,
+        no_collision,
+        penetration_before,
+        penetration_after,
+        body1,
+        body2,
+    ) = _collision_resolution_helper(body1, body2, contact_point)
+
+    with check:
+        assert res_first_collision, "there wasnt a collision"
+        assert no_collision, "collision was not resolved"
+        assert velocities_away, "velocities arent away"
+
+    # ball is going to the right, because of its spin
+    with check:
+        assert body1.velocity[0] > 0, "velocity of the ball is not to the right"
+
+    # triangle is spun counterclockwise and pushed left by the ball's rotation
+    with check:
+        assert body2.velocity[0] < 0, "velocity of the triangle is not to the left"
+        assert body2.velocity[1] < 0, "velocity of the triangle is not down"
+    with check:
+        assert abs(body2.angular_velocity) > 1e-2, "triangle was not spun"
+        assert body2.angular_velocity > 0, (
+            "angular velocity of the triangle is not positive. "
+            "by convention, it should be positive "
+            "if the triangle is rotating counterclockwise"
+        )
+
+    with check:
+        # ball should continue spinning, but slower
+        assert abs(body1.angular_velocity) < abs(
+            initial_angular_v
+        ), "the ball's angular velocity should decrease"
+        assert jnp.sign(body1.angular_velocity) == jnp.sign(
+            initial_angular_v
+        ), "the ball should keep rotating in the same direction"
