@@ -127,29 +127,14 @@ def _compute_lever_arms_and_tangential_velocity(
     return lever_arm1, lever_arm2, tangential_relative_velocity
 
 
-def _resolve_collision_checked(
-    body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
-) -> Tuple[AbstractBody, AbstractBody, CollisionResolutionExtraInfo]:
-    """
-    Wrapper for _resolve_collision that checks if the bodies are already moving apart.
-    In such case, the collision should not be resolved.
-    """
-    return jax.lax.cond(
-        # todo: use a way from tests
-        jnp.dot(body1.velocity - body2.velocity, contact_info.penetration_vector)
-        >= 0.0,
-        lambda: (body1, body2, CollisionResolutionExtraInfo.make_default()),
-        lambda: _resolve_collision(body1, body2, contact_info),
-    )
-
-
 def _resolve_collision(
     body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
 ) -> Tuple[AbstractBody, AbstractBody, CollisionResolutionExtraInfo]:
     """
     Resolves a collision between two bodies.
     Potentially changes velocities, positions and angular velocities of the bodies.
-    Should be called through _resolve_collision_checked.
+    Contains a check that closest points of the bodies are moving apart.
+      Does nothing if they are.
     """
     penetration_vector = contact_info.penetration_vector
     contact_point = contact_info.contact_point
@@ -177,89 +162,104 @@ def _resolve_collision(
         change_of_basis, contact_point, body1, body2
     )
 
-    # impulse computation is in accordance with
-    # https://github.com/knyazer/RSS/blob/
-    # 1246e03c5950a5549a128fbce97c7bd402f9bed7/engine/source/env/World.cpp#L87
+    # check that the collision has to be resolved
+    point1_v = body1.velocity + body1.angular_velocity * lever_arm1
+    point2_v = body2.velocity + body2.angular_velocity * lever_arm2
+    # todo: this might not work with super concave bodies,
+    #  when the center of mass is on the wrong side of the collision point
+    velocities_away = jnp.dot(point1_v - point2_v, body1.position - body2.position) >= 0
 
-    # inertia is kg * m^2, so this is kg^-1
-    impulseFactor1 = (1 / body1.mass) + (lever_arm1**2) / body1.inertia
-    impulseFactor2 = (1 / body2.mass) + (lever_arm2**2) / body2.inertia
+    # called iff velocities_away is False
+    def continue_resolution(body1, body2):
+        # impulse computation is in accordance with
+        # https://github.com/knyazer/RSS/blob/
+        # 1246e03c5950a5549a128fbce97c7bd402f9bed7/engine/source/env/World.cpp#L87
 
-    # here, we only care about the collision along the collision normal
-    # units are kg * m / s
-    primary_col_impulse = (
-        (1 + elasticity) * v_rel[0] / (impulseFactor1 + impulseFactor2)
+        # inertia is kg * m^2, so this is kg^-1
+        impulseFactor1 = (1 / body1.mass) + (lever_arm1**2) / body1.inertia
+        impulseFactor2 = (1 / body2.mass) + (lever_arm2**2) / body2.inertia
+
+        # here, we only care about the collision along the collision normal
+        # units are kg * m / s
+        primary_col_impulse = (
+            (1 + elasticity) * v_rel[0] / (impulseFactor1 + impulseFactor2)
+        )
+
+        # v1 dot perpendicular tries to be the same as v2 dot perpendicular.
+        #   clipped to be in the range [-friction_impulse_max, friction_impulse_max]
+        friction_impulse_max = friction_coefficient * jnp.abs(primary_col_impulse)
+        # this adds an impulse perpendicular to the collision normal
+        friction_impulse = jnp.clip(
+            # I am not too sure that the formula is correct here
+            tangential_relative_velocity / (impulseFactor1 + impulseFactor2),
+            -friction_impulse_max,
+            friction_impulse_max,
+        )
+
+        col_impulse = -jnp.array([primary_col_impulse, friction_impulse])
+
+        # jax.debug.print(
+        #     "\nlever arms: {lever_arm1}, {lever_arm2}. \n"
+        #     "center1: {center1}, center2: {center2}. "
+        #     "contact_point: {contact_point}. \n"
+        #     "global_supports {sup1}, {sup2}. "
+        #     "collision_unit_vector {unit_collision_vector}. \n"
+        #     "tangential_relative_velocity: {tangential_relative_velocity}. \n"
+        #     "friction_impulse: {friction_impulse}. \n"
+        #     "col_impulse in new basis: {col_impulse}. \n"
+        #     "col_impulse original: {col_impulse_original}. \n",
+        #     lever_arm1=lever_arm1,
+        #     lever_arm2=lever_arm2,
+        #     center1=body1.get_center_of_mass(),
+        #     center2=body2.get_center_of_mass(),
+        #     contact_point=contact_point,
+        #     sup1=body1.shape.get_global_support(-unit_collision_vector),
+        #     sup2=body2.shape.get_global_support(unit_collision_vector),
+        #     unit_collision_vector=unit_collision_vector,
+        #     tangential_relative_velocity=tangential_relative_velocity,
+        #     friction_impulse=friction_impulse,
+        #     col_impulse=col_impulse,
+        #     col_impulse_original=change_of_basis_inv @ col_impulse,
+        # )
+
+        v1_new_col_basis = v1_col_basis + col_impulse / body1.mass
+        v2_new_col_basis = v2_col_basis - col_impulse / body2.mass
+
+        # col_impulse[0] is along collision normal
+        body1 = body1.set_angular_velocity(
+            body1.angular_velocity
+            + (lever_arm1 * col_impulse[0]) / body1.inertia
+            - col_impulse[1] / body1.inertia
+        )
+        body2 = body2.set_angular_velocity(
+            body2.angular_velocity
+            + (lever_arm2 * col_impulse[0]) / body2.inertia
+            - col_impulse[1] / body2.inertia
+        )
+        # the rotational force is applied with the same sign to both bodies.
+        #   this is because although the force acts in the opposite directions
+        #   on the bodies, it contributes to rotation in the same direction,
+        #   as the contact point is on the opposite sides of the center of mass
+
+        v1_new = change_of_basis_inv @ v1_new_col_basis
+        v2_new = change_of_basis_inv @ v2_new_col_basis
+
+        body1 = body1.set_velocity(v1_new)
+        body2 = body2.set_velocity(v2_new)
+
+        body1, body2 = _split_bodies(body1, body2, penetration_vector)
+
+        extra_info = CollisionResolutionExtraInfo(
+            lever_arm1=lever_arm1,
+            lever_arm2=lever_arm2,
+            tangential_relative_velocity=tangential_relative_velocity,
+            primary_col_impulse=primary_col_impulse,
+            friction_impulse=friction_impulse,
+        )
+        return body1, body2, extra_info
+
+    return jax.lax.cond(
+        velocities_away,
+        lambda: (body1, body2, CollisionResolutionExtraInfo.make_default()),
+        lambda: continue_resolution(body1, body2),
     )
-
-    # v1 dot perpendicular tries to be the same as v2 dot perpendicular.
-    #   clipped to be in the range [-friction_impulse_max, friction_impulse_max]
-    friction_impulse_max = friction_coefficient * jnp.abs(primary_col_impulse)
-    # this adds an impulse perpendicular to the collision normal
-    friction_impulse = jnp.clip(
-        # I am not too sure that the formula is correct here
-        tangential_relative_velocity / (impulseFactor1 + impulseFactor2),
-        -friction_impulse_max,
-        friction_impulse_max,
-    )
-
-    col_impulse = -jnp.array([primary_col_impulse, friction_impulse])
-
-    # jax.debug.print(
-    #     "\nlever arms: {lever_arm1}, {lever_arm2}. \n"
-    #     "center1: {center1}, center2: {center2}. "
-    #     "contact_point: {contact_point}. \n"
-    #     "global_supports {sup1}, {sup2}. "
-    #     "collision_unit_vector {unit_collision_vector}. \n"
-    #     "tangential_relative_velocity: {tangential_relative_velocity}. \n"
-    #     "friction_impulse: {friction_impulse}. \n"
-    #     "col_impulse in new basis: {col_impulse}. \n"
-    #     "col_impulse original: {col_impulse_original}. \n",
-    #     lever_arm1=lever_arm1,
-    #     lever_arm2=lever_arm2,
-    #     center1=body1.get_center_of_mass(),
-    #     center2=body2.get_center_of_mass(),
-    #     contact_point=contact_point,
-    #     sup1=body1.shape.get_global_support(-unit_collision_vector),
-    #     sup2=body2.shape.get_global_support(unit_collision_vector),
-    #     unit_collision_vector=unit_collision_vector,
-    #     tangential_relative_velocity=tangential_relative_velocity,
-    #     friction_impulse=friction_impulse,
-    #     col_impulse=col_impulse,
-    #     col_impulse_original=change_of_basis_inv @ col_impulse,
-    # )
-
-    v1_new_col_basis = v1_col_basis + col_impulse / body1.mass
-    v2_new_col_basis = v2_col_basis - col_impulse / body2.mass
-
-    # col_impulse[0] is along collision normal
-    body1 = body1.set_angular_velocity(
-        body1.angular_velocity
-        + (lever_arm1 * col_impulse[0]) / body1.inertia
-        - col_impulse[1] / body1.inertia
-    )
-    body2 = body2.set_angular_velocity(
-        body2.angular_velocity
-        + (lever_arm2 * col_impulse[0]) / body2.inertia
-        - col_impulse[1] / body2.inertia
-    )
-    # the rotational force is applied with the same sign to both bodies.
-    #   this is because although the force acts in the opposite directions
-    #   on the bodies, it contributes to rotation in the same direction,
-    #   as the contact point is on the opposite sides of the center of mass
-
-    v1_new = change_of_basis_inv @ v1_new_col_basis
-    v2_new = change_of_basis_inv @ v2_new_col_basis
-
-    body1 = body1.set_velocity(v1_new)
-    body2 = body2.set_velocity(v2_new)
-
-    body1, body2 = _split_bodies(body1, body2, penetration_vector)
-
-    extra_info = CollisionResolutionExtraInfo(
-        lever_arm1=lever_arm1,
-        lever_arm2=lever_arm2,
-        tangential_relative_velocity=tangential_relative_velocity,
-        primary_col_impulse=primary_col_impulse,
-        friction_impulse=friction_impulse,
-    )
-    return body1, body2, extra_info
