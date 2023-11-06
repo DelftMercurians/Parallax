@@ -27,6 +27,10 @@ class ContactInfo(eqx.Module):
 
 
 class CollisionResolutionExtraInfo(eqx.Module):
+    """
+    Additional information about the collision that is returned by _resolve_collision()
+    """
+
     lever_arm1: Float[Array, ""]
     lever_arm2: Float[Array, ""]
     tangential_relative_velocity: Float[Array, ""]
