@@ -35,7 +35,7 @@ def _collision_resolution_helper(body1, body2, contact_point=None):
 
     contact_info = ContactInfo(penetration_before, contact_point)
 
-    body1, body2 = _resolve_collision_checked(body1, body2, contact_info)
+    body1, body2, extra_info = _resolve_collision_checked(body1, body2, contact_info)
 
     # test get global support
     res_collision, simplex = check_for_collision_convex(
@@ -46,10 +46,11 @@ def _collision_resolution_helper(body1, body2, contact_point=None):
         body1.shape.get_global_support, body2.shape.get_global_support, simplex
     )
 
-    # velocities are such that the distance between balls is increasing
-    velocities_away = (
-        jnp.dot(body1.velocity - body2.velocity, body1.position - body2.position) >= 0
-    )
+    # velocities are such that the distance between
+    # the closest points of the objects is increasing
+    point1_v = body1.velocity + body1.angular_velocity * extra_info.lever_arm1
+    point2_v = body2.velocity + body2.angular_velocity * extra_info.lever_arm2
+    velocities_away = jnp.dot(point1_v - point2_v, body1.position - body2.position) >= 0
     no_collision = jnp.logical_or(
         ~res_collision,
         jnp.linalg.norm(penetration_after) < 1e-3 * jnp.linalg.norm(penetration_before),
@@ -494,3 +495,80 @@ def test_friction_affects_center_of_mass_velocity():
     with check:
         assert reversed_body1 == updated_body2, "order of bodies matters"
         assert reversed_body2 == updated_body1, "order of bodies matters"
+
+
+def test_resolution_with_multishape_body():
+    r1 = jnp.array(1.0)
+    shape11 = Circle(r1, jnp.array([0.5, 0.0]))
+    shape12 = Polygon(jnp.array([[-1.0, 1.0], [0.5, 1.0], [0.5, -1.0], [-1.0, -1.0]]))
+
+    p1 = jnp.array([0.25, 0.5])
+    v1 = jnp.array([-2.0, -2.0])
+
+    # a corner such that the bullet slightly penetrates on side of it
+    vertical_wall = Polygon(
+        jnp.array([[-1.0, 3.0], [-0.5, 3.0], [-0.5, -1.0], [-1.0, -1.0]])
+    )
+    horizontal_wall = Polygon(
+        jnp.array([[-0.5, -0.5], [3.0, -0.5], [3.0, -1.0], [-0.5, -1.0]])
+    )
+    v2 = jnp.array([0.0, 0.0])
+    p2 = jnp.array([-0.5, -0.5])
+
+    body1 = AnyBody(
+        mass=jnp.array(2.0),
+        inertia=jnp.array(1.0),
+        position=p1,
+        velocity=v1,
+        angle=jnp.array(-3 / 4 * jnp.pi),
+        angular_velocity=jnp.array(0.0),
+        elasticity=jnp.array(0.5),
+        friction_coefficient=jnp.array(0.5),
+        shape=UniversalShape(shape11, shape12),
+    )  # bullet pointed left down
+    body2 = AnyBody(
+        mass=jnp.array(10.0),
+        inertia=jnp.array(10.0),
+        position=p2,
+        velocity=v2,
+        angle=jnp.array(0.0),
+        angular_velocity=jnp.array(0.0),
+        elasticity=jnp.array(0.5),
+        friction_coefficient=jnp.array(0.5),
+        shape=UniversalShape(vertical_wall, horizontal_wall),
+    )
+
+    contact_point = jnp.array([-1.0518, 0.1464])
+
+    (
+        velocities_away,
+        res_first_collision,
+        no_collision,
+        penetration_before,
+        penetration_after,
+        updated_body1,
+        updated_body2,
+    ) = _collision_resolution_helper(body1, body2, contact_point)
+
+    with check:
+        assert res_first_collision, "there wasnt a collision"
+        assert no_collision, "collision was not resolved"
+        assert velocities_away, "velocities arent away"
+
+    # bullet bounced off the 'corner'
+    with check:
+        assert (
+            updated_body1.velocity[0] > body1.velocity[0]
+        ), "velocity of the bullet should be more to the right"
+        assert updated_body1.velocity[1] < 0, "velocity of the bullet should be down"
+
+    # corner bounced and spun
+    with check:
+        assert (
+            updated_body2.velocity[0] < 0
+        ), "velocity of the corner should be to the left"
+    with check:
+        assert abs(updated_body2.angular_velocity) > 1e-2, "corner was not spun"
+        assert (
+            updated_body2.angular_velocity > 0
+        ), "angular velocity of the corner should be counterclockwise"

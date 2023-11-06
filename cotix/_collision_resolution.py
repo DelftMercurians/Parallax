@@ -26,6 +26,33 @@ class ContactInfo(eqx.Module):
         self.contact_point = contact_point
 
 
+class CollisionResolutionExtraInfo(eqx.Module):
+    lever_arm1: Float[Array, ""]
+    lever_arm2: Float[Array, ""]
+    tangential_relative_velocity: Float[Array, ""]
+    primary_col_impulse: Float[Array, ""]
+    friction_impulse: Float[Array, ""]
+
+    def __init__(
+        self,
+        lever_arm1,
+        lever_arm2,
+        tangential_relative_velocity,
+        primary_col_impulse,
+        friction_impulse,
+    ):
+        self.lever_arm1 = lever_arm1
+        self.lever_arm2 = lever_arm2
+        self.tangential_relative_velocity = tangential_relative_velocity
+        self.primary_col_impulse = primary_col_impulse
+        self.friction_impulse = friction_impulse
+
+    @staticmethod
+    def make_default():
+        z = jnp.array(0.0)
+        return CollisionResolutionExtraInfo(z, z, z, z, z)
+
+
 def _move_one_body(primary_body, secondary_body, split_portion, penetration_vector):
     # if one body has mass inf, the other body should move the entire distance,
     #   but np.inf/np.inf = nan
@@ -67,7 +94,7 @@ def _split_bodies(
 
 def _compute_lever_arms_and_tangential_velocity(
     change_of_basis, contact_point, body1, body2
-):
+) -> Tuple[Float[Array, ""], Float[Array, ""], Float[Array, ""]]:
     """
     Auxiliary function that computes lever arms and tangential velocity.
     Lever arm is a scalar that determines rotational contribution
@@ -102,22 +129,23 @@ def _compute_lever_arms_and_tangential_velocity(
 
 def _resolve_collision_checked(
     body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
-) -> Tuple[AbstractBody, AbstractBody]:
+) -> Tuple[AbstractBody, AbstractBody, CollisionResolutionExtraInfo]:
     """
     Wrapper for _resolve_collision that checks if the bodies are already moving apart.
     In such case, the collision should not be resolved.
     """
     return jax.lax.cond(
+        # todo: use a way from tests
         jnp.dot(body1.velocity - body2.velocity, contact_info.penetration_vector)
         >= 0.0,
-        lambda: (body1, body2),
+        lambda: (body1, body2, CollisionResolutionExtraInfo.make_default()),
         lambda: _resolve_collision(body1, body2, contact_info),
     )
 
 
 def _resolve_collision(
     body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
-) -> Tuple[AbstractBody, AbstractBody]:
+) -> Tuple[AbstractBody, AbstractBody, CollisionResolutionExtraInfo]:
     """
     Resolves a collision between two bodies.
     Potentially changes velocities, positions and angular velocities of the bodies.
@@ -165,10 +193,8 @@ def _resolve_collision(
 
     # v1 dot perpendicular tries to be the same as v2 dot perpendicular.
     #   clipped to be in the range [-friction_impulse_max, friction_impulse_max]
-    # this adds an impulse perpendicular to the collision normal
-    # todo: the spin can not be such that the collision point is moving
-    #  in the opposite direction along tangent with the new angular velocity
     friction_impulse_max = friction_coefficient * jnp.abs(primary_col_impulse)
+    # this adds an impulse perpendicular to the collision normal
     friction_impulse = jnp.clip(
         # I am not too sure that the formula is correct here
         tangential_relative_velocity / (impulseFactor1 + impulseFactor2),
@@ -216,8 +242,8 @@ def _resolve_collision(
         + (lever_arm2 * col_impulse[0]) / body2.inertia
         - col_impulse[1] / body2.inertia
     )
-    # the col_impulse[1] is applied with the same sign to both bodies.
-    #   this is because although friction acts in the opposite directions
+    # the rotational force is applied with the same sign to both bodies.
+    #   this is because although the force acts in the opposite directions
     #   on the bodies, it contributes to rotation in the same direction,
     #   as the contact point is on the opposite sides of the center of mass
 
@@ -228,4 +254,12 @@ def _resolve_collision(
     body2 = body2.set_velocity(v2_new)
 
     body1, body2 = _split_bodies(body1, body2, penetration_vector)
-    return body1, body2
+
+    extra_info = CollisionResolutionExtraInfo(
+        lever_arm1=lever_arm1,
+        lever_arm2=lever_arm2,
+        tangential_relative_velocity=tangential_relative_velocity,
+        primary_col_impulse=primary_col_impulse,
+        friction_impulse=friction_impulse,
+    )
+    return body1, body2, extra_info
