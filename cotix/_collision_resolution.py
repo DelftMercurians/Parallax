@@ -14,6 +14,10 @@ from cotix._geometry_utils import perpendicular_vector
 
 
 class ContactInfo(eqx.Module):
+    """
+    Additional information about the collision that is expected by _resolve_collision()
+    """
+
     penetration_vector: Float[Array, "2"]
     contact_point: Float[Array, "2"]
 
@@ -43,6 +47,10 @@ def _move_one_body(primary_body, secondary_body, split_portion, penetration_vect
 def _split_bodies(
     body1: AbstractBody, body2: AbstractBody, penetration_vector: Float[Array, "2"]
 ) -> Tuple[AbstractBody, AbstractBody]:
+    """
+    Moves bodies apart so that they intersect less.
+    Takes masses into account.
+    """
     body1 = eqx.error_if(
         body1,
         (body1.mass == jnp.array(jnp.inf)) & (body2.mass == jnp.array(jnp.inf)),
@@ -57,9 +65,48 @@ def _split_bodies(
     return body1, body2
 
 
+def _compute_lever_arms_and_tangential_velocity(
+    change_of_basis, contact_point, body1, body2
+):
+    """
+    Auxiliary function that computes lever arms and tangential velocity.
+    Lever arm is a scalar that determines rotational contribution
+    of the primary impact force.
+    Tangential velocity is a scalar that helps to compute frictional impulse.
+    """
+    # transform the received contact point to the new coordinate system
+    contact_point = change_of_basis @ contact_point
+
+    relative_contact_point1 = (
+        contact_point - change_of_basis @ body1.get_center_of_mass()
+    )
+    relative_contact_point2 = (
+        contact_point - change_of_basis @ body2.get_center_of_mass()
+    )
+
+    # lever arms can be negative, but i think it makes sense
+    lever_arm1 = relative_contact_point1[1]
+    lever_arm2 = relative_contact_point2[1]
+
+    contact_point_speed1 = (
+        jnp.dot(body1.velocity, change_of_basis[1])
+        + relative_contact_point1[0] * body1.angular_velocity
+    )
+    contact_point_speed2 = (
+        jnp.dot(body2.velocity, change_of_basis[1])
+        + relative_contact_point2[0] * body2.angular_velocity
+    )
+    tangential_relative_velocity = contact_point_speed1 - contact_point_speed2
+    return lever_arm1, lever_arm2, tangential_relative_velocity
+
+
 def _resolve_collision_checked(
     body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
 ) -> Tuple[AbstractBody, AbstractBody]:
+    """
+    Wrapper for _resolve_collision that checks if the bodies are already moving apart.
+    In such case, the collision should not be resolved.
+    """
     return jax.lax.cond(
         jnp.dot(body1.velocity - body2.velocity, contact_info.penetration_vector)
         >= 0.0,
@@ -71,6 +118,11 @@ def _resolve_collision_checked(
 def _resolve_collision(
     body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
 ) -> Tuple[AbstractBody, AbstractBody]:
+    """
+    Resolves a collision between two bodies.
+    Potentially changes velocities, positions and angular velocities of the bodies.
+    Should be called through _resolve_collision_checked.
+    """
     penetration_vector = contact_info.penetration_vector
     contact_point = contact_info.contact_point
     elasticity = body1.elasticity * body2.elasticity
@@ -84,38 +136,18 @@ def _resolve_collision(
     change_of_basis_inv = jnp.linalg.inv(change_of_basis)
 
     # everything below should be in the new coordinate system
-    unit_collision_new_basis = change_of_basis @ unit_collision_vector
-    perpendicular_new_basis = change_of_basis @ perpendicular
     v1_col_basis = change_of_basis @ body1.velocity
     v2_col_basis = change_of_basis @ body2.velocity
 
     v_rel = v1_col_basis - v2_col_basis
 
-    # transform the received contact point to the new coordinate system
-    contact_point = change_of_basis @ contact_point
-
-    relative_contact_point1 = (
-        contact_point - change_of_basis @ body1.get_center_of_mass()
+    (
+        lever_arm1,
+        lever_arm2,
+        tangential_relative_velocity,
+    ) = _compute_lever_arms_and_tangential_velocity(
+        change_of_basis, contact_point, body1, body2
     )
-    relative_contact_point2 = (
-        contact_point - change_of_basis @ body2.get_center_of_mass()
-    )
-
-    # lever arms can be negative, but i think it makes sense
-    lever_arm1 = jnp.dot(relative_contact_point1, perpendicular_new_basis)
-    lever_arm2 = jnp.dot(relative_contact_point2, perpendicular_new_basis)
-
-    contact_point_speed1 = (
-        jnp.dot(body1.velocity, perpendicular)
-        + jnp.dot(relative_contact_point1, unit_collision_new_basis)
-        * body1.angular_velocity
-    )
-    contact_point_speed2 = (
-        jnp.dot(body2.velocity, perpendicular)
-        + jnp.dot(relative_contact_point2, unit_collision_new_basis)
-        * body2.angular_velocity
-    )
-    tangential_relative_velocity = contact_point_speed1 - contact_point_speed2
 
     # impulse computation is in accordance with
     # https://github.com/knyazer/RSS/blob/
@@ -127,8 +159,8 @@ def _resolve_collision(
 
     # here, we only care about the collision along the collision normal
     # units are kg * m / s
-    col_impulse = jnp.array(
-        [-(1 + elasticity) * v_rel[0] / (impulseFactor1 + impulseFactor2), 0.0]
+    primary_col_impulse = (
+        (1 + elasticity) * v_rel[0] / (impulseFactor1 + impulseFactor2)
     )
 
     # v1 dot perpendicular tries to be the same as v2 dot perpendicular.
@@ -136,7 +168,7 @@ def _resolve_collision(
     # this adds an impulse perpendicular to the collision normal
     # todo: the spin can not be such that the collision point is moving
     #  in the opposite direction along tangent with the new angular velocity
-    friction_impulse_max = friction_coefficient * jnp.abs(col_impulse[0])
+    friction_impulse_max = friction_coefficient * jnp.abs(primary_col_impulse)
     friction_impulse = jnp.clip(
         # I am not too sure that the formula is correct here
         tangential_relative_velocity / (impulseFactor1 + impulseFactor2),
@@ -144,7 +176,7 @@ def _resolve_collision(
         friction_impulse_max,
     )
 
-    col_impulse = col_impulse - perpendicular_new_basis * friction_impulse
+    col_impulse = -jnp.array([primary_col_impulse, friction_impulse])
 
     # jax.debug.print(
     #     "\nrelative_contact_points: "
