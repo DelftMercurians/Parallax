@@ -179,10 +179,7 @@ def _resolve_collision(
     col_impulse = -jnp.array([primary_col_impulse, friction_impulse])
 
     # jax.debug.print(
-    #     "\nrelative_contact_points: "
-    #     "{relative_contact_point1}, {relative_contact_point2}. "
-    #     "perpendicular: {perpendicular}, "
-    #     "lever arms: {lever_arm1}, {lever_arm2}. \n"
+    #     "\nlever arms: {lever_arm1}, {lever_arm2}. \n"
     #     "center1: {center1}, center2: {center2}. "
     #     "contact_point: {contact_point}. \n"
     #     "global_supports {sup1}, {sup2}. "
@@ -191,14 +188,11 @@ def _resolve_collision(
     #     "friction_impulse: {friction_impulse}. \n"
     #     "col_impulse in new basis: {col_impulse}. \n"
     #     "col_impulse original: {col_impulse_original}. \n",
-    #     relative_contact_point1=relative_contact_point1,
-    #     relative_contact_point2=relative_contact_point2,
-    #     perpendicular=perpendicular_new_basis,
     #     lever_arm1=lever_arm1,
     #     lever_arm2=lever_arm2,
     #     center1=body1.get_center_of_mass(),
     #     center2=body2.get_center_of_mass(),
-    #     contact_point=change_of_basis_inv @ contact_point,
+    #     contact_point=contact_point,
     #     sup1=body1.shape.get_global_support(-unit_collision_vector),
     #     sup2=body2.shape.get_global_support(unit_collision_vector),
     #     unit_collision_vector=unit_collision_vector,
@@ -219,7 +213,7 @@ def _resolve_collision(
     )
     body2 = body2.set_angular_velocity(
         body2.angular_velocity
-        - (lever_arm2 * col_impulse[0]) / body2.inertia
+        + (lever_arm2 * col_impulse[0]) / body2.inertia
         - col_impulse[1] / body2.inertia
     )
     # the col_impulse[1] is applied with the same sign to both bodies.

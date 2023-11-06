@@ -172,9 +172,6 @@ def test_circle_hits_circle_elastic():
 
 
 def test_triangle_circle_angular():
-    # todo: so this test is not passing,
-    #  because we dont yet have a way to compute non-obvious contact points
-
     # checks angular speed as well (nonzero for the triangle)
     zero_position = jnp.zeros((2,))
     r1 = jnp.array(1.0)
@@ -187,9 +184,9 @@ def test_triangle_circle_angular():
     # a triangle that intersects the circle
     # center of mass is in 0, 0 vertex,
     # resulting rotation should be counterclockwise
-    shape2 = Polygon(jnp.array([[-1.0, 0.0], [-0.2, 2.5], [1.0, 0.0]]))
+    shape2 = Polygon(jnp.array([[-1.0, -1.0], [-0.2, 1.5], [1.0, -1.0]]))
     v2 = jnp.zeros((2,))
-    p2 = jnp.ones((2,))
+    p2 = jnp.array([1.0, 2.0])
 
     body1 = Ball(jnp.array(1.0), p1, v1, UniversalShape(shape1))
     body2 = AnyBody(
@@ -204,6 +201,8 @@ def test_triangle_circle_angular():
         shape=UniversalShape(shape2),
     )
 
+    contact_point = jnp.array([1.1591, 2.5964])
+
     (
         velocities_away,
         res_first_collision,
@@ -212,35 +211,31 @@ def test_triangle_circle_angular():
         penetration_after,
         body1,
         body2,
-    ) = _collision_resolution_helper(body1, body2)
+    ) = _collision_resolution_helper(body1, body2, contact_point)
 
     epa_velocity_angle = angle_between(v1, -penetration_before)
 
-    print(
-        velocities_away
-        & res_first_collision
-        & no_collision
-        & (epa_velocity_angle < 1e-3)
-    )
+    with check:
+        assert (
+            epa_velocity_angle < 1e-3
+        ), "velocity is not along epa penetration vector (so epa is wrong)"
+    with check:
+        assert res_first_collision, "there wasnt a collision"
+        assert no_collision, "collision was not resolved"
+        assert velocities_away, "velocities arent away"
 
-    # assert (
-    #     epa_velocity_angle < 1e-3
-    # ), "velocity is not along epa vector (so epa is wrong)"
-    # assert res_first_collision, "there wasnt a collision"
-    # assert no_collision, "collision was not resolved"
-    # assert velocities_away, "velocities arent away"
-    #
-    # assert (
-    #     abs(body1.angular_velocity) <= 1e-3
-    # ), "angular velocity of the ball is not zero"
-    # assert (
-    #     abs(body2.angular_velocity) > 1e-2
-    # ), "angular velocity of the triangle is zero"
-    # assert body2.angular_velocity > 0, (
-    #     "angular velocity of the triangle is not positive. "
-    #     "by convention, it should be positive "
-    #     "if the triangle is rotating counterclockwise"
-    # )
+    with check:
+        assert (
+            abs(body1.angular_velocity) <= 1e-3
+        ), "angular velocity of the ball is not zero"
+        assert (
+            abs(body2.angular_velocity) > 1e-2
+        ), "angular velocity of the triangle is zero"
+        assert body2.angular_velocity > 0, (
+            "angular velocity of the triangle is not positive. "
+            "by convention, it should be positive "
+            "if the triangle is rotating counterclockwise"
+        )
 
 
 def test_ball_spins_after_wall():
