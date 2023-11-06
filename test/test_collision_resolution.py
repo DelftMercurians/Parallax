@@ -450,8 +450,8 @@ def test_friction_affects_center_of_mass_velocity():
         no_collision,
         penetration_before,
         penetration_after,
-        body1,
-        body2,
+        updated_body1,
+        updated_body2,
     ) = _collision_resolution_helper(body1, body2, contact_point)
 
     with check:
@@ -461,15 +461,17 @@ def test_friction_affects_center_of_mass_velocity():
 
     # ball is going to the right, because of its spin
     with check:
-        assert body1.velocity[0] > 0, "velocity of the ball is not to the right"
+        assert updated_body1.velocity[0] > 0, "velocity of the ball is not to the right"
 
     # triangle is spun counterclockwise and pushed left by the ball's rotation
     with check:
-        assert body2.velocity[0] < 0, "velocity of the triangle is not to the left"
-        assert body2.velocity[1] < 0, "velocity of the triangle is not down"
+        assert (
+            updated_body2.velocity[0] < 0
+        ), "velocity of the triangle is not to the left"
+        assert updated_body2.velocity[1] < 0, "velocity of the triangle is not down"
     with check:
-        assert abs(body2.angular_velocity) > 1e-2, "triangle was not spun"
-        assert body2.angular_velocity > 0, (
+        assert abs(updated_body2.angular_velocity) > 1e-2, "triangle was not spun"
+        assert updated_body2.angular_velocity > 0, (
             "angular velocity of the triangle is not positive. "
             "by convention, it should be positive "
             "if the triangle is rotating counterclockwise"
@@ -477,9 +479,23 @@ def test_friction_affects_center_of_mass_velocity():
 
     with check:
         # ball should continue spinning, but slower
-        assert abs(body1.angular_velocity) < abs(
+        assert abs(updated_body1.angular_velocity) < abs(
             initial_angular_v
         ), "the ball's angular velocity should decrease"
-        assert jnp.sign(body1.angular_velocity) == jnp.sign(
+        assert jnp.sign(updated_body1.angular_velocity) == jnp.sign(
             initial_angular_v
         ), "the ball should keep rotating in the same direction"
+
+    # test that switching the order of bodies doesnt change the result
+    (
+        velocities_away,
+        res_first_collision,
+        no_collision,
+        penetration_before,
+        penetration_after,
+        reversed_body1,
+        reversed_body2,
+    ) = _collision_resolution_helper(body2, body1, contact_point)
+    with check:
+        assert reversed_body1 == updated_body2, "order of bodies matters"
+        assert reversed_body2 == updated_body1, "order of bodies matters"
