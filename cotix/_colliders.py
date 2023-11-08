@@ -8,7 +8,7 @@ from jaxtyping import Array, Float, Int
 from ._bodies import AbstractBody
 from ._collision_resolution import resolve_collision
 from ._convex_shapes import AABB
-from ._utils import JList, make_pairs
+from ._utils import make_pairs
 
 
 class AbstractCollider(eqx.Module):
@@ -107,7 +107,6 @@ class NaiveCollider(AbstractCollider):
     def resolve(self, bodies):
         initial_bodies = bodies
         length = len(bodies)
-        bodies = JList(bodies)
 
         broad_collisions = self.broad_phase(bodies, N=4 * length)
         penetrations = self.narrow_phase(bodies, broad_collisions, N=length)
