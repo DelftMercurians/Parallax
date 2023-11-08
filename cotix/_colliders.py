@@ -2,12 +2,13 @@ from typing import List
 
 import equinox as eqx
 import jax
-from jax import numpy as jnp, tree_util as jtu
+from jax import numpy as jnp
 from jaxtyping import Array, Float, Int
 
 from ._bodies import AbstractBody
+from ._collision_resolution import resolve_collision
 from ._convex_shapes import AABB
-from ._utils import filter_scan
+from ._utils import JList, make_pairs
 
 
 class AbstractCollider(eqx.Module):
@@ -47,11 +48,24 @@ class _CollisionWithPenetration(eqx.Module):
     penetration_vector: Float[Array, "2"]
 
 
-class _PostCollisionUpdate(eqx.Module):
-    i: Int[Array, ""]
-    j: Int[Array, ""]
-    body_i: AbstractBody
-    body_j: AbstractBody
+@jax.jit
+def _check_aabb_collision(a, b):
+    c = (a[0] < b[0]) & AABB.collides(a[1], b[1])
+    return jax.lax.cond(
+        c,
+        lambda: _BroadCollision(jnp.array(a[0]), jnp.array(b[0])),
+        lambda: _BroadCollision(jnp.array(-1), jnp.array(-1)),
+    )
+
+
+@eqx.filter_jit
+def resolve_idk(x, y):
+    jax.debug.print("{x};{y}", x=x, y=y)
+
+
+@eqx.filter_jit
+def get_body(bodies, i):
+    return bodies[int(i)]
 
 
 class NaiveCollider(AbstractCollider):
@@ -62,57 +76,57 @@ class NaiveCollider(AbstractCollider):
     then we have an exact phase, where we detect just N collisions.
     """
 
-    def broad_phase(self, bodies, N: int):
-        res = [_BroadCollision(jnp.array(-1), jnp.array(-1))] * N
+    @eqx.filter_jit
+    def broad_phase(self, bodies, limit: int):
+        # map bodies to theirs aabbs, trace-time
+        aabbs = [AABB()] * len(bodies)
+        for i in range(len(bodies)):
+            aabbs[i] = AABB.of_universal(bodies[i].shape)
+        out = make_pairs(
+            aabbs,
+            _check_aabb_collision,
+            _BroadCollision(jnp.array(-1), jnp.array(-1)),
+            limit=limit,
+        )
 
-        def loop_body(carry, xs):
-            collision_index, res_index, res = carry
-            i = collision_index // len(bodies)
-            j = jnp.mod(collision_index, len(bodies))
-            jax.debug.print("{x}", x=(i, j))
-            res, res_index = jax.lax.cond(
-                AABB.collide(AABB(bodies[i]), AABB(bodies[j])),
-                (
-                    eqx.tree_at(
-                        lambda r: r[res_index], res, replace=_BroadCollision(i, j)
-                    ),
-                    res_index + 1,
-                ),
-                (res[res_index], res_index),
+        return out
+
+    @eqx.filter_jit
+    def total_phase(self, bodies, limit: int):
+        @jax.jit
+        def _check_actual_collision(a, b):
+            c = a[0] < b[0]
+            return jax.lax.cond(
+                c, lambda: a[1].penetrates_with(b[1]), lambda: jnp.zeros((2,))
             )
-            return collision_index + 1, res_index
 
-        (_, _, res), _ = filter_scan(
-            loop_body, (jnp.array(0), jnp.array(0), res), None, length=len(bodies) ** 2
-        )
-        return res[:N]
+        out = make_pairs(bodies, _check_actual_collision, jnp.zeros((2,)), limit=limit)
 
-    def exact_phase(self, bodies, collision_data, N: int):
-        pass
+        return out
 
-    def resolve_penetration(self, collision_to_resolve, bodies):
-        def resolve_collision_of_two_bodies(self, *args):
-            raise NotImplementedError
+    def resolve(self, bodies):
+        initial_bodies = bodies
+        length = len(bodies)
+        bodies = JList(bodies)
 
-        i, j = collision_to_resolve.i, collision_to_resolve.j
-        penetration_vector = collision_to_resolve.penetration_vector
-        new_body_a, new_body_b = resolve_collision_of_two_bodies(
-            bodies[i], bodies[j], penetration_vector
-        )
-        return _PostCollisionUpdate(i, j, new_body_a, new_body_b)
+        broad_collisions = self.broad_phase(bodies, N=4 * length)
+        penetrations = self.narrow_phase(bodies, broad_collisions, N=length)
 
-    def resolve(self, bodies: List[AbstractBody]):
-        broad_collisions = self.broad_phase(bodies, N=4 * len(bodies))
-        exact_collisions = self._exact_phase(bodies, broad_collisions, N=len(bodies))
+        # yep, the reason we do a for-loop here and not jax tree map
+        # is so that XLA maybe optimizes all memory shit inside it
+        # cuz when we do jtu tree map, I think XLA does not need
+        # extra-iteration optimizations, like it optimizes only inside the iteration
+        for p in penetrations:
+            new_body_a, new_body_b = resolve_collision(p.a, p.b, p.penetration_vector)
+            # TODO: this cool piece of code might cause ~N copies of all the bodies,
+            # which is like a loooot. Idk how to fix it though, so for now it is fine
+            # btw, i am not sure if it actually causes them: maybe XLA is smart enough
+            # to not copy bodies for every instruction (probably it is smart enough)
+            bodies = bodies.set_at(p.i, new_body_a)
+            bodies = bodies.set_at(p.j, new_body_b)
 
-        updates = jtu.tree_map(
-            lambda x: self.resolve_penetration(x, bodies),
-            exact_collisions,
-            is_leaf=isinstance(AbstractBody),
-        )
-
-        # now 'apply' updates, by setting correct bodies
-        for upd in updates:
-            bodies = bodies.at[upd.i].set(upd.body_i)
-            bodies = bodies.at[upd.j].set(upd.body_j)
-        return bodies
+        out = bodies.to_pytree()
+        # easy way to check if out and bodies are the same,
+        # lol -> if the shapes are not the same,
+        # JAX will commit suicide by itself
+        return jax.lax.cond(True, lambda: out, lambda: initial_bodies)

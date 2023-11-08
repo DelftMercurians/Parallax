@@ -9,6 +9,7 @@ __all__ = [
     "convex_shapes",
     "design_by_contract",
     "universal_shape",
+    "utils",
 ]
 
 with install_import_hook("cotix", "beartype.beartype"):
@@ -19,3 +20,4 @@ with install_import_hook("cotix", "beartype.beartype"):
     import cotix._design_by_contract as design_by_contract
     import cotix._geometry_utils as geometry_utils
     import cotix._universal_shape as universal_shape
+    import cotix._utils as utils

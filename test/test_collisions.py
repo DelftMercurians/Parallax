@@ -1,205 +1,272 @@
+import equinox as eqx
 import jax
 import pytest
-from jax import numpy as jnp, random as jr
+from jax import numpy as jnp, random as jr, tree_util as jtu
 
-from cotix._collisions import (
-    check_for_collision_convex,
-    compute_penetration_vector_convex,
+from cotix._contacts import aabb_vs_aabb, circle_vs_aabb, circle_vs_circle
+from cotix._convex_shapes import AABB, Circle
+
+
+MAX_CALLS_PER_VMAP = 1_000
+TESTS_PER_SCENARIO = 10_000_000
+
+# Firstly, we define two extraordinarly convenient functions for testing invariants
+
+
+def _test_with_seed(f, seed, N=TESTS_PER_SCENARIO, N_ratio=1.0):
+    N = int(N_ratio * N)
+    # and it tests a bunch of random configurations 'heavily'
+    # and a bunch of them 'lightly'
+    # where 'lightly' and 'heavily' qualify how many checks we conduct
+    # in general, 'lightly' means that test time is ~1 eval while
+    # 'heavily' means that test time is ~50 eval time, and also the
+    # same amount of memory. While I could have reduced memory consumption
+    # for the heavy testing, I don't really care.
+    k1, k2 = jr.split(seed, 2)
+    light_keys = jr.split(k1, 1 + (N // MAX_CALLS_PER_VMAP))
+    heavy_keys = jr.split(k2, 1 + (N // (MAX_CALLS_PER_VMAP * 50)))
+
+    fl = jax.vmap(jtu.Partial(f, heavy=False))
+    fh = jax.vmap(jtu.Partial(f, heavy=True))
+
+    def wh(key):
+        return fh(jr.split(key, MAX_CALLS_PER_VMAP))
+
+    def wl(key):
+        return fl(jr.split(key, MAX_CALLS_PER_VMAP))
+
+    out_light = jax.lax.map(wl, light_keys)
+    out_heavy = jax.lax.map(wh, heavy_keys)
+
+    if (not jnp.all(out_light)) or (not jnp.all(out_heavy)):
+        print(f"Light tests: {out_light.size}; Heavy tests: {out_heavy.size}")
+        print(
+            f"Light failed: {jnp.count_nonzero(~out_light)}; "
+            f"Heavy failed: {jnp.count_nonzero(~out_heavy)}"
+        )
+
+    # neat debugging thingy: automatically enter debugger if something failed
+    # and enter it in the correct function call (since everything is vmapped ..
+    #     simple eqx.debug.breakpoint_if does not work well)
+    for wkey in light_keys[~jnp.all(out_light, axis=1)]:
+        ikeys = jr.split(wkey, MAX_CALLS_PER_VMAP)
+        iout = fl(ikeys)
+        for key in ikeys[~iout]:
+            f(key, heavy=False, debug=True)
+
+    for wkey in heavy_keys[~jnp.all(out_heavy, axis=1)]:
+        ikeys = jr.split(wkey, MAX_CALLS_PER_VMAP)
+        iout = fh(ikeys)
+        for key in ikeys[~iout]:
+            f(key, heavy=True, debug=True)
+
+    # actual asserts
+    assert jnp.all(out_light), "Light tests failed"
+    assert jnp.all(out_heavy), "Heavy tests failed"
+
+
+def _test_contact_info(f, a, b, heavy=True, debug=False, small_eps=1e-5):
+    big_eps = 10 * small_eps
+
+    info = f(a, b)
+    # condition that should always hold true (unless no collision at all)
+    contact_point_contained = a.contains(info.contact_point) & b.contains(
+        info.contact_point
+    )
+
+    # 'resolve' the collision
+    an = a.move(info.penetration_vector)
+    new_info = f(an, b)
+
+    # check that there is not penetration after we resolve the collision
+    after_resolution_no_penetration = (
+        jnp.linalg.norm(new_info.penetration_vector) < small_eps
+    )
+
+    no_shorter_resolution = True
+    if heavy:
+        # check that a shorter movement in any direction won't resolve a collision:
+        # since we are 'guaranteeing' that penetration vector is the minimal one
+        dirs_pen = jnp.linspace(0, 2 * jnp.pi, 20)
+        length = jnp.clip(jnp.linalg.norm(info.penetration_vector) - big_eps, a_min=0.0)
+        deltas = jnp.stack((jnp.cos(dirs_pen), jnp.sin(dirs_pen)), axis=1) * length
+        penetrations_big = jax.vmap(
+            lambda delta: f(a.move(delta), b).penetration_vector
+        )(deltas)
+        penetrations_big_cond = jnp.linalg.norm(penetrations_big, axis=1) > small_eps
+        no_shorter_resolution = jnp.all(penetrations_big_cond) | (
+            jnp.linalg.norm(info.penetration_vector) < 1.5 * small_eps
+        )
+
+    # check that we can obtain deep penetration if checking a bunch of directions
+    exist_deep_enough = True
+    if heavy:
+        dirs = jnp.linspace(0, 2 * jnp.pi, 20)
+        deltas = jnp.stack((jnp.cos(dirs), jnp.sin(dirs)), axis=1) * big_eps
+        assert (
+            deltas.shape[1] == 2
+        ), "NOT A FAILURE OF A TEST, BUT A FAILURE OF A PRE-CONDITION"
+
+        # get the corresponding penetration vectors for each of the moves
+        penetrations = jax.vmap(lambda delta: f(an.move(delta), b).penetration_vector)(
+            deltas
+        )
+        is_penetration_deep_enough = (
+            jnp.linalg.norm(penetrations, axis=1) > big_eps * 0.5
+        )
+
+        assert is_penetration_deep_enough.shape == (
+            20,
+        ), "NOT A FAILURE OF A TEST, BUT A FAILURE OF A PRE-CONDITION"
+
+        # and this is the final condition, which is true iff the objects are 'touching'
+        # after resolving the collision
+        exist_deep_enough = jnp.any(is_penetration_deep_enough)
+
+    if debug:
+        jax.debug.breakpoint()
+
+    return jnp.any(jnp.isnan(info.contact_point)) | (
+        exist_deep_enough
+        & after_resolution_no_penetration
+        & no_shorter_resolution
+        & contact_point_contained
+    )
+
+
+# and the actual tests follow ...
+
+
+@pytest.mark.parametrize(
+    "inp",
+    [
+        (
+            AABB(
+                lower=jnp.array([-0.72877413, 0.4557484]),
+                upper=jnp.array([2.8047075, 1.2977818]),
+            ),
+            AABB(
+                lower=jnp.array([0.54837185, -0.6289791]),
+                upper=jnp.array([2.0380392, 2.3360252]),
+            ),
+        )
+    ],
 )
-from cotix._convex_shapes import AABB, Circle, Polygon
+def test_aabb_vs_aabb_parametrized(inp):
+    a, b = inp
+    assert _test_contact_info(aabb_vs_aabb, a, b)
 
 
-def test_circle_vs_circle():
-    key = jr.PRNGKey(0)
-    jr.PRNGKey(3)
-
-    def f(key):
-        key1, key2, key3, key4 = jr.split(key, 4)
-        pa = jr.uniform(key1, (2,)) * 4 - 2
-        pb = jr.uniform(key2, (2,)) * 4 - 2
-        ra = jr.uniform(key3, ()) * 2 + 1e-2
-        rb = jr.uniform(key4, ()) * 2 + 1e-2
-
-        a = Circle(ra, pa)
-        b = Circle(rb, pb)
-
-        true_no_collision = jnp.sum((pa - pb) ** 2) > (ra + rb) ** 2
-        true_shift = -jnp.sqrt(jnp.sum((pa - pb) ** 2)) + (ra + rb)
-
-        dir = b.get_center() - a.get_center()
-        res_collision, simplex = check_for_collision_convex(
-            a.get_support, b.get_support, dir
+def test_aabb_vs_aabb_rand():
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = AABB(
+            lower=jr.normal(k1, (2,)),
+            upper=jr.normal(k1, (2,))
+            + jr.uniform(k2, shape=(2,), minval=0.01, maxval=5.0),
         )
-        res_no_collision = ~res_collision
-        res_shift = compute_penetration_vector_convex(
-            a.get_support, b.get_support, simplex
+        b = AABB(
+            lower=jr.normal(k3, (2,)),
+            upper=jr.normal(k3, (2,))
+            + jr.uniform(k4, shape=(2,), minval=0.01, maxval=5.0),
         )
 
-        def _c1(_):
-            return true_no_collision == res_no_collision
+        val = _test_contact_info(aabb_vs_aabb, a, b, **kwargs)
+        return val
 
-        def _c2(pa):
-            first_cond = true_no_collision == res_no_collision
-
-            # second condition is that it is approximately closest shift
-            second_cond = (
-                jnp.absolute(true_shift - jnp.linalg.norm(res_shift))
-                / jnp.linalg.norm(true_shift)
-                < 1e-2
-            )
-            return first_cond & second_cond
-
-        return jax.lax.cond(true_no_collision, _c1, _c2, pa)
-
-    N = 10000
-    keys = jr.split(key, N)
-    f = jax.jit(jax.vmap(f))
-    out = f(keys)
-    assert jnp.all(out)
+    _test_with_seed(f, jr.PRNGKey(0))
 
 
-def test_rect_vs_rect():
-    key = jr.PRNGKey(0)
-
-    def f(key, flag=jnp.array(False)):
-        # todo: afaiu, this is only for axis aligned rectangles
-        key1, key2, key3, key4, key = jr.split(key, 5)
-
-        min1 = jr.uniform(key1, (2,)) * 4 - 2
-        w1, h1 = jr.uniform(key2, (2,)) * 2
-
-        a = Polygon(
-            jnp.array(
-                [
-                    min1,
-                    jnp.array([min1[0] + w1, min1[1]]),
-                    jnp.array([min1[0] + w1, min1[1] + h1]),
-                    jnp.array([min1[0], min1[1] + h1]),
-                ]
-            )
+def test_circle_vs_circle_rand():
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = Circle(
+            position=jr.normal(k1, (2,)),
+            radius=jr.uniform(k2, shape=(), minval=0.01, maxval=5.0),
+        )
+        b = Circle(
+            position=jr.normal(k3, (2,)),
+            radius=jr.uniform(k4, shape=(), minval=0.01, maxval=5.0),
         )
 
-        min2 = jr.uniform(key3, (2,)) * 4 - 2
-        w2, h2 = jr.uniform(key4, (2,)) * 2 + 0.01
+        val = _test_contact_info(circle_vs_circle, a, b, **kwargs)
+        return val
 
-        b = Polygon(
-            jnp.array(
-                [
-                    min2,
-                    jnp.array([min2[0] + w2, min2[1]]),
-                    jnp.array([min2[0] + w2, min2[1] + h2]),
-                    jnp.array([min2[0], min2[1] + h2]),
-                ]
-            )
+    _test_with_seed(f, jr.PRNGKey(1))
+
+
+@pytest.mark.parametrize(
+    "inp",
+    [
+        (
+            Circle(jnp.array(4.808976), jnp.array([0.52343243, 0.38244677])),
+            AABB(jnp.array([1.2948408, 1.4734308]), jnp.array([3.3397233, 6.3817973])),
+        ),
+        (
+            Circle(jnp.array(1.0), jnp.array([1.0, 1.0])),
+            AABB(jnp.array([-2.0, -2.0]), jnp.array([0.4, 0.7])),
+        ),
+        (
+            Circle(jnp.array(5.0), jnp.zeros((2,))),
+            AABB(jnp.array([-2.0, -2.0]), jnp.array([2.0, 2.0])),
+        ),
+        (
+            Circle(jnp.array(3.7427633), jnp.array([-0.0277214, 1.0449156])),
+            AABB(
+                jnp.array([-0.6238362, -1.1297362]), jnp.array([1.3405488, -0.5544366])
+            ),
+        ),
+        (
+            Circle(jnp.array(0.5361439), jnp.array([-0.4457733, 0.5882554])),
+            AABB(
+                jnp.array([-0.44587463, -0.73396504]), jnp.array([0.0717122, 3.0028129])
+            ),
+        ),
+        (
+            Circle(jnp.array(1.0), jnp.zeros((2,))),
+            AABB(jnp.array([-2.0, -2.0]), jnp.array([2.0, 2.0])),
+        ),
+        (
+            Circle(jnp.array(0.01), jnp.array([0.0, 1.8])),
+            AABB(jnp.array([-2.0, -2.0]), jnp.array([2.0, 2.0])),
+        ),
+        (
+            Circle(jnp.array(1.0), jnp.array([0.1, 0.2])),
+            AABB(jnp.array([-2.0, -2.3]), jnp.array([2.0, 2.0])),
+        ),
+        (
+            Circle(jnp.array(1.0), jnp.array([-0.3, 0.05])),
+            AABB(jnp.array([-2.1, -2.3]), jnp.array([2.0, 2.0])),
+        ),
+        (
+            Circle(jnp.array(1.0), jnp.array([-0.12, -0.56])),
+            AABB(jnp.array([-2.0, -2.0]), jnp.array([2.2, 2.3])),
+        ),
+    ],
+)
+def test_circle_vs_aabb_parametrized(inp):
+    a = inp[0]
+    b = inp[1]
+    assert _test_contact_info(circle_vs_aabb, a, b, debug=False)
+
+
+def test_circle_vs_aabb_rand():
+    @eqx.filter_jit
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = Circle(
+            position=jr.normal(k1, (2,)),
+            radius=jr.uniform(k2, shape=(), minval=0.01, maxval=5.0),
+        )
+        b = AABB(
+            lower=jr.normal(k3, (2,)),
+            upper=jr.normal(k3, (2,))
+            + jr.uniform(k4, shape=(2,), minval=0.01, maxval=5.0),
         )
 
-        is_first_below_second = min1[1] + h1 < min2[1]
-        is_first_above_second = min2[1] + h2 < min1[1]
-        is_first_left_second = min1[0] + w1 < min2[0]
-        is_first_right_second = min2[0] + w2 < min1[0]
+        val = _test_contact_info(circle_vs_aabb, a, b, **kwargs)
+        return val
 
-        true_no_collision = (
-            is_first_below_second
-            | is_first_left_second
-            | is_first_above_second
-            | is_first_right_second
-        )
-
-        dir = b.get_center() - a.get_center()
-
-        res_collision, simplex = check_for_collision_convex(
-            a.get_support, b.get_support, dir
-        )
-        penetration = compute_penetration_vector_convex(
-            a.get_support, b.get_support, simplex
-        )
-        penetration = jnp.absolute(penetration)
-
-        c1 = res_collision != true_no_collision
-        c2 = c1 & ((penetration[0] < 1e-5) | (penetration[1] < 1e-5))
-        return jax.lax.cond(true_no_collision, lambda: c1, lambda: c2)
-
-    N = 10000
-    f = jax.vmap(f)
-    out = f(jr.split(key, N))
-
-    assert jnp.all(out)
-
-
-def test_aabb_vs_aabb():
-    key = jr.PRNGKey(0)
-
-    def f(key, flag=jnp.array(False)):
-        key1, key2, key3, key4, key = jr.split(key, 5)
-
-        min1 = jr.uniform(key1, (2,)) * 4 - 2
-        w1, h1 = jr.uniform(key2, (2,)) * 2
-        max1 = min1 + jnp.array([w1, h1])
-        shape1 = Polygon(
-            jnp.array(
-                [
-                    min1,
-                    jnp.array([min1[0] + w1, min1[1]]),
-                    jnp.array([min1[0] + w1, min1[1] + h1]),
-                    jnp.array([min1[0], min1[1] + h1]),
-                ]
-            )
-        )
-
-        aabb1 = AABB(shape1)
-
-        center2 = jr.uniform(key3, (2,)) * 4 - 2
-        r2 = jr.uniform(key4, ()) * 2 + 1e-2
-
-        shape2 = Circle(r2, center2)
-
-        aabb2 = AABB(shape2)
-
-        is_first_below_second = max1[1] < center2[1] - r2
-        is_first_above_second = center2[1] + r2 < min1[1]
-        is_first_left_second = max1[0] < center2[0] - r2
-        is_first_right_second = center2[0] + r2 < min1[0]
-
-        true_no_collision = (
-            is_first_below_second
-            | is_first_left_second
-            | is_first_above_second
-            | is_first_right_second
-        )
-
-        dir = aabb2.get_center() - aabb1.get_center()
-
-        res_collision, simplex = check_for_collision_convex(
-            aabb1.get_support, aabb2.get_support, dir
-        )
-        penetration = compute_penetration_vector_convex(
-            aabb1.get_support, aabb2.get_support, simplex
-        )
-        penetration = jnp.absolute(penetration)
-
-        c1 = res_collision != true_no_collision
-        c2 = c1 & ((penetration[0] < 1e-5) | (penetration[1] < 1e-5))
-        return jax.lax.cond(true_no_collision, lambda: c1, lambda: c2)
-
-    N = 10000
-    f = jax.vmap(f)
-    out = f(jr.split(key, N))
-
-    assert jnp.all(out)
-
-
-@pytest.mark.parametrize("pos", [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
-def test_circle_circle_aligned_positive(pos):
-    a = Circle(radius=jnp.array(1.0), position=jnp.array(pos))
-    b = Circle(radius=jnp.array(0.2), position=jnp.zeros((2,)))
-    dir = b.get_center() - a.get_center()
-
-    res, simplex = check_for_collision_convex(
-        a.get_support, b.get_support, initial_direction=dir
-    )
-
-    penetration = compute_penetration_vector_convex(
-        a.get_support, b.get_support, simplex
-    )
-
-    assert jnp.linalg.norm(penetration - jnp.array(pos) * 0.2) < 1e-3
+    # since it is relatively slower to compute a collision between aabb and a circle
+    # we are setting N_ratio to 0.2, which is probably small enough
+    _test_with_seed(f, jr.PRNGKey(0), N_ratio=0.2)

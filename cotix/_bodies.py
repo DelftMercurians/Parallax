@@ -48,6 +48,9 @@ class AbstractBody(eqx.Module, strict=True):
         """Returns boolean, whether there is a collision with another body."""
         return self.shape.collides_with(other.shape)
 
+    def penetrates_with(self, other):
+        return self.shape.penetrates_with(other.shape)
+
     def possibly_collides_with(self, other):
         return self.shape.possibly_collides_with(other.shape)
 

@@ -2,7 +2,6 @@
 Implements physics logic that resolves a simple elastic collision between two bodies.
 """
 
-
 from typing import Tuple
 
 import jax.lax
@@ -78,3 +77,10 @@ def _1d_elastic_collision_velocities(m1, m2, u1, u2):
     v1 = ((m1 - m2) / (m1 + m2)) * u1 + ((2 * m2) / (m1 + m2)) * u2
     v2 = ((2 * m1) / (m1 + m2)) * u1 + ((m2 - m1) / (m1 + m2)) * u2
     return v1, v2
+
+
+def resolve_collision(
+    body1: AbstractBody, body2: AbstractBody, penetration_vector: Float[Array, "2"]
+):
+    """Cute user-facing abstraction"""
+    return _resolve_collision_checked(body1, body2, penetration_vector)

@@ -42,6 +42,7 @@ class UniversalShape(eqx.Module, strict=True):
 
         return wrapper
 
+    @eqx.filter_jit
     def get_global_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
         """
         Given a direction, computes a furthest point of
@@ -73,9 +74,7 @@ class UniversalShape(eqx.Module, strict=True):
         """
         # TODO: reduce compilation speed with using tree map
         final_res = False
-        final_simplex = jnp.zeros((3, 2))
-        partA = self.parts[0]
-        partB = other.parts[0]
+        final_simplex = (jnp.zeros((3, 2)), self.parts[0], other.parts[0])
         for first_part in self.parts:
             for second_part in other.parts:
                 # find if there is a collision between two convex sub-shapes
@@ -86,23 +85,32 @@ class UniversalShape(eqx.Module, strict=True):
                 final_simplex = jax.lax.cond(
                     (~final_res) & res,
                     lambda: (simplex, first_part, second_part),
-                    lambda: (final_simplex, partA, partB),
+                    lambda: final_simplex,
                 )
                 final_res |= res
-        return final_res, (final_simplex, partA, partB)
+        return final_res, final_simplex
 
     def possibly_collides_with(self, other):
         return AABB.collides(AABB.of_universal(self), AABB.of_universal(other))
 
+    def penetrates_with(self, other):
+        res, metadata = self.collides_with(other)
+        return jax.lax.cond(
+            res,
+            lambda: self.penetration_depth(other, metadata),
+            lambda: jnp.zeros((2,)),
+        )
+
     def penetration_depth(self, other, metadata, solver_iterations=48):
         """
-        This method 'fakes' a computation of penetration length. No,
-        the length is truly computed, but just we only need metadata to compute it.
-        Whatever....
+        Computing the penetration of depth, given metadata
+        In practice though, EPA is like 50 times slower than GJK,
+        so one can just ignore passing metadata and use faster penetrates_with
+        method.
         """
         return compute_penetration_vector_convex(
-            metadata[1].get_support,
-            metadata[2].get_support,
+            self.wrap_local_support(metadata[1].get_support),
+            other.wrap_local_support(metadata[2].get_support),
             metadata[0],
             solver_iterations,
         )

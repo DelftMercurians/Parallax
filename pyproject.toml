@@ -3,7 +3,7 @@ name = "cotix"
 version = "0.0.1alpha"
 description = "Continuous-time, differentiable reinforcement-learning environments with JAX"
 readme = "README.md"
-requires-python ="~=3.9"
+requires-python =">=3.9"
 license = {file = "LICENSE"}
 authors = [
   {name = "Roman Knyazhitskiy", email = "contact@knyaz.tech"},
