@@ -77,7 +77,13 @@ def perpendicular_vector(v):
     return jnp.array([-v[1], v[0]])
 
 
-class HomogenuousTransformer(eqx.Module, strict=True):
+def angle_between(v1, v2):
+    v1_u = v1 / jnp.linalg.norm(v1)
+    v2_u = v2 / jnp.linalg.norm(v2)
+    return jnp.arccos(jnp.clip(jnp.dot(v1_u, v2_u), -1.0, 1.0))
+
+
+class HomogeneousTransformer(eqx.Module, strict=True):
     """
     Allows to apply arbitrary affine transformations to passed vectors/directions
     """

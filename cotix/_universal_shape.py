@@ -9,7 +9,7 @@ from jaxtyping import Array, Float
 
 from ._abstract_shapes import AbstractShape, SupportFn
 from ._collisions import check_for_collision_convex, compute_penetration_vector_convex
-from ._geometry_utils import HomogenuousTransformer
+from ._geometry_utils import HomogeneousTransformer
 
 
 class UniversalShape(eqx.Module, strict=True):
@@ -22,11 +22,11 @@ class UniversalShape(eqx.Module, strict=True):
     """
 
     parts: list[AbstractShape]
-    _transformer: HomogenuousTransformer
+    _transformer: HomogeneousTransformer
 
     def __init__(self, *shapes: AbstractShape):
         self.parts = [*shapes]
-        self._transformer = HomogenuousTransformer()
+        self._transformer = HomogeneousTransformer()
 
     def wrap_local_support(self, support_fn: SupportFn) -> SupportFn:
         """
@@ -63,7 +63,7 @@ class UniversalShape(eqx.Module, strict=True):
         return eqx.tree_at(
             lambda x: x._transformer,
             self,
-            HomogenuousTransformer(angle=angle, position=position),
+            HomogeneousTransformer(angle=angle, position=position),
         )
 
     def collides_with(self, other):

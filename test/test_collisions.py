@@ -2,11 +2,14 @@ import jax
 import pytest
 from jax import numpy as jnp, random as jr
 
+from cotix._bodies import Ball
 from cotix._collisions import (
     check_for_collision_convex,
     compute_penetration_vector_convex,
 )
 from cotix._convex_shapes import AABB, Circle, Polygon
+from cotix._geometry_utils import angle_between
+from cotix._universal_shape import UniversalShape
 
 
 def test_circle_vs_circle():
@@ -203,3 +206,108 @@ def test_circle_circle_aligned_positive(pos):
     )
 
     assert jnp.linalg.norm(penetration - jnp.array(pos) * 0.2) < 1e-3
+
+
+def test_circle_vs_circle_epa_direction():
+    key = jr.PRNGKey(0)
+    jr.PRNGKey(3)
+
+    def f(key):
+        key1, key2, key3, key4 = jr.split(key, 4)
+        pa = jr.uniform(key1, (2,)) * 4 - 2
+        pb = jr.uniform(key2, (2,)) * 4 - 2
+        dist = jnp.sqrt(jnp.sum((pa - pb) ** 2))
+        ra = jr.uniform(key3, minval=dist * 0.25, maxval=dist * 0.75)
+        # guarantee a collision
+        rb = jr.uniform(key4, minval=(dist - ra) * 1.05, maxval=(dist - ra) * 1.15)
+
+        a = Circle(ra, pa)
+        b = Circle(rb, pb)
+
+        true_no_collision = jnp.sum((pa - pb) ** 2) > (ra + rb) ** 2
+        -jnp.sqrt(jnp.sum((pa - pb) ** 2)) + (ra + rb)
+
+        dir = b.get_center() - a.get_center()
+        res_collision, simplex = check_for_collision_convex(
+            a.get_support, b.get_support, dir
+        )
+        res_no_collision = ~res_collision
+        epa_vector = compute_penetration_vector_convex(
+            a.get_support, b.get_support, simplex
+        )
+
+        def _c1(_):
+            return true_no_collision == res_no_collision
+
+        def _c2(pa):
+            first_cond = true_no_collision == res_no_collision
+
+            # second condition is that epa vector is in the right direction
+            second_cond = angle_between(epa_vector, pa - pb) < 1e-2
+            return first_cond & second_cond
+
+        return jax.lax.cond(true_no_collision, _c1, _c2, pa)
+
+    N = 10000
+    keys = jr.split(key, N)
+    f = jax.jit(jax.vmap(f))
+    out = f(keys)
+    if not jnp.all(out):
+        print(f"failed: {jnp.sum(~out) / N}")
+    assert jnp.all(out)
+
+
+def test_ball_vs_ball_epa_direction():
+    key = jr.PRNGKey(0)
+    jr.PRNGKey(3)
+
+    def f(key):
+        key1, key2, key3, key4 = jr.split(key, 4)
+        pa = jr.uniform(key1, (2,)) * 4 - 2
+        pb = jr.uniform(key2, (2,)) * 4 - 2
+        dist = jnp.sqrt(jnp.sum((pa - pb) ** 2))
+        ra = jr.uniform(key3, minval=dist * 0.25, maxval=dist * 0.75)
+        # guarantee a collision
+        rb = jr.uniform(key4, minval=(dist - ra) * 1.05, maxval=(dist - ra) * 1.15)
+
+        zero_position = jnp.zeros((2,))
+        shape1 = Circle(ra, zero_position)
+        shape2 = Circle(rb, zero_position)
+
+        true_no_collision = jnp.sum((pa - pb) ** 2) > (ra + rb) ** 2
+        -jnp.sqrt(jnp.sum((pa - pb) ** 2)) + (ra + rb)
+
+        body1 = Ball(jnp.array(1.0), pa, jnp.zeros((2,)), UniversalShape(shape1))
+        body2 = Ball(jnp.array(1.0), pb, jnp.zeros((2,)), UniversalShape(shape2))
+
+        body1.shape.wrap_local_support(body1.shape.parts[0].get_support)
+        body2.shape.wrap_local_support(body2.shape.parts[0].get_support)
+
+        dir = pb - pa
+        res_collision, simplex = check_for_collision_convex(
+            body1.shape.get_global_support, body2.shape.get_global_support, dir
+        )
+        res_no_collision = ~res_collision
+        epa_vector = compute_penetration_vector_convex(
+            body1.shape.get_global_support, body2.shape.get_global_support, simplex
+        )
+
+        def _c1(_):
+            return true_no_collision == res_no_collision
+
+        def _c2(pa):
+            first_cond = true_no_collision == res_no_collision
+
+            # second condition is that epa vector is in the right direction
+            second_cond = angle_between(epa_vector, pa - pb) < 1e-2
+            return first_cond & second_cond
+
+        return jax.lax.cond(true_no_collision, _c1, _c2, pa)
+
+    N = 10000
+    keys = jr.split(key, N)
+    f = jax.jit(jax.vmap(f))
+    out = f(keys)
+    if not jnp.all(out):
+        print(f"failed: {jnp.sum(~out) / N}")
+    assert jnp.all(out)
