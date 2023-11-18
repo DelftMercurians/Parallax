@@ -1,8 +1,10 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from jaxtyping import Array, Float
 
+from ._collisions import check_for_collision_convex, compute_penetration_vector_convex
 from ._convex_shapes import AABB, Circle
 
 
@@ -142,5 +144,160 @@ def circle_vs_aabb(a: Circle, b: AABB, eps=1e-6):
     return jax.lax.cond(
         a.contains(ccp),
         lambda: jax.lax.cond(perfect_vertex, circle_dir_move, aligned_move),
+        lambda: ContactInfo.nan(),
+    )
+
+
+def circle_vs_polygon(circle, polygon):
+    # We can magically find the penetration vector by doing this (ultra slow though)
+    exists, simplex = check_for_collision_convex(
+        circle.get_support, polygon.get_support
+    )
+    penetration_vector = compute_penetration_vector_convex(
+        circle.get_support, polygon.get_support, simplex
+    )
+
+    # And then we just need to find a contact point. This is easy to do in linear time,
+    # just look at all the edges one after another
+    def edge_point_displacement(edge, point):
+        a, b = edge
+        length = jnp.sum((a - b) ** 2)
+
+        def _f1():
+            t = jnp.dot(point - b, a - b) / length
+            t = jnp.clip(t, 0.0, 1.0)
+            projection = b + t * (a - b)
+            displacement = point - projection
+            return displacement
+
+        def _f2():
+            return jnp.array([jnp.inf, jnp.inf])
+
+        return jax.lax.cond(
+            jnp.all((a == jnp.zeros((2,))) & (b == jnp.zeros((2,)))), _f2, _f1
+        )
+
+    edges = polygon.get_edges()
+    disps = jax.lax.map(
+        jtu.Partial(edge_point_displacement, point=circle.position), edges
+    )
+    dists = jnp.sum(disps**2, axis=1)
+    minindex = jnp.argmin(dists)
+    contact_point = circle.position + disps[minindex]
+    contact_point = jax.lax.cond(
+        dists[minindex] > (circle.radius**2),
+        lambda: circle.position,
+        lambda: contact_point,
+    )
+    return jax.lax.cond(
+        exists,
+        lambda: ContactInfo(penetration_vector, contact_point),
+        lambda: ContactInfo.nan(),
+    )
+
+
+def aabb_vs_polygon(aabb, polygon):
+    solver_iterations = min(48, 4 + len(polygon.vertices) + 1)
+    exists, simplex = check_for_collision_convex(aabb.get_support, polygon.get_support)
+
+    penetration_vector = compute_penetration_vector_convex(
+        aabb.get_support, polygon.get_support, simplex, solver_iterations
+    )
+
+    # And then we just need to find a contact point. This is easy to do in linear time,
+    # just look at all the edges one after another
+    def edge_vs_edge(edge_a, edge_b):
+        def crs(a, b):
+            return a[0] * b[1] - b[0] * a[1]
+
+        p = edge_a[0]
+        r = edge_a[1] - edge_a[0]
+
+        q = edge_b[0]
+        s = edge_b[1] - edge_b[0]
+
+        c = crs(r, s)
+
+        t = crs((q - p), s) / c
+        u = crs((q - p), r) / c
+
+        return jax.lax.cond(
+            jnp.all(c != 0.0) & (t >= 0.0) & (t <= 1.0) & (u >= 0.0) & (u <= 1.0),
+            lambda: p + r * t,
+            lambda: jnp.array([jnp.nan, jnp.nan]),
+        )
+
+    edges_aabb = aabb.get_edges()
+    edges_polygon = polygon.get_edges()
+
+    def check_edges_vs_edge(edge):
+        return jax.lax.map(jtu.Partial(edge_vs_edge, edge_b=edge), edges_aabb)
+
+    outer_map = jax.lax.map(check_edges_vs_edge, edges_polygon)
+
+    outer_map = outer_map.reshape((-1, 2))
+
+    contact_point = jnp.array([jnp.nan, jnp.nan])
+    for x in outer_map:
+        contact_point = jax.lax.cond(
+            jnp.any(jnp.isnan(x)), lambda: contact_point, lambda: x
+        )
+
+    return jax.lax.cond(
+        exists,
+        lambda: ContactInfo(penetration_vector, contact_point),
+        lambda: ContactInfo.nan(),
+    )
+
+
+def polygon_vs_polygon(poly_a, poly_b):
+    solver_iterations = min(48, len(poly_a.vertices) + len(poly_b.vertices) + 1)
+    exists, simplex = check_for_collision_convex(poly_a.get_support, poly_b.get_support)
+
+    penetration_vector = compute_penetration_vector_convex(
+        poly_a.get_support, poly_b.get_support, simplex, solver_iterations
+    )
+
+    # And then we just need to find a contact point. This is easy to do in linear time,
+    # just look at all the edges one after another
+    def edge_vs_edge(edge_a, edge_b):
+        def crs(a, b):
+            return a[0] * b[1] - b[0] * a[1]
+
+        p = edge_a[0]
+        r = edge_a[1] - edge_a[0]
+
+        q = edge_b[0]
+        s = edge_b[1] - edge_b[0]
+
+        c = crs(r, s)
+
+        t = crs((q - p), s) / c
+        u = crs((q - p), r) / c
+
+        return jax.lax.cond(
+            jnp.all(c != 0.0) & (t >= 0.0) & (t <= 1.0) & (u >= 0.0) & (u <= 1.0),
+            lambda: p + r * t,
+            lambda: jnp.array([jnp.nan, jnp.nan]),
+        )
+
+    edges_a = poly_a.get_edges()
+    edges_b = poly_b.get_edges()
+
+    def check_edges_vs_edge(edge):
+        return jax.lax.map(jtu.Partial(edge_vs_edge, edge_b=edge), edges_a)
+
+    outer_map = jax.lax.map(check_edges_vs_edge, edges_b)
+    outer_map = outer_map.reshape((-1, 2))
+
+    contact_point = jnp.array([jnp.nan, jnp.nan])
+    for x in outer_map:
+        contact_point = jax.lax.cond(
+            jnp.any(jnp.isnan(x)), lambda: contact_point, lambda: x
+        )
+
+    return jax.lax.cond(
+        exists,
+        lambda: ContactInfo(penetration_vector, contact_point),
         lambda: ContactInfo.nan(),
     )

@@ -62,11 +62,6 @@ def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:
     Orders a bunch of vertices clockwise around their center of mass.
     """
     relative_vertices = vertices - jnp.mean(vertices, axis=0)
-    relative_vertices = eqx.error_if(
-        relative_vertices,
-        relative_vertices == jnp.zeros((2,)),
-        "Encountered zero in order clockwise, cannot handle for now",
-    )  # TODO: solve this
     angles = jnp.arctan2(relative_vertices[:, 1], relative_vertices[:, 0])
     indices = jnp.argsort(angles, axis=0)
     return vertices[indices]

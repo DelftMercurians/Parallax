@@ -3,8 +3,15 @@ import jax
 import pytest
 from jax import numpy as jnp, random as jr, tree_util as jtu
 
-from cotix._contacts import aabb_vs_aabb, circle_vs_aabb, circle_vs_circle
-from cotix._convex_shapes import AABB, Circle
+from cotix._contacts import (
+    aabb_vs_aabb,
+    aabb_vs_polygon,
+    circle_vs_aabb,
+    circle_vs_circle,
+    circle_vs_polygon,
+    polygon_vs_polygon,
+)
+from cotix._convex_shapes import AABB, Circle, Polygon
 
 
 MAX_CALLS_PER_VMAP = 1_000
@@ -270,3 +277,152 @@ def test_circle_vs_aabb_rand():
     # since it is relatively slower to compute a collision between aabb and a circle
     # we are setting N_ratio to 0.2, which is probably small enough
     _test_with_seed(f, jr.PRNGKey(0), N_ratio=0.2)
+
+
+"""
+@pytest.mark.parametrize(
+    "inp",
+    [
+        (
+            Circle(jnp.array(2.3251324), jnp.array([-0.9682081, 0.6601708])),
+            Polygon(jnp.array([[0.0, 1.0], [-0.5, -0.5], [0.5, -0.5]]))
+        ),
+        (
+            Circle(jnp.array(0.9460892), jnp.array([-0.27002454, -0.07793757])),
+            Polygon(jnp.array([[0.0, 1.0], [-0.5, -0.5], [0.5, -0.5]]))
+        ),
+        (
+            Circle(jnp.array(1.8268951), jnp.array([-1.0627501, -0.18848151])),
+            Polygon(jnp.array([[0.0, 1.0], [-0.5, -0.5], [0.5, -0.5]]))
+        ),
+        (
+            Circle(jnp.array(1.9288263), jnp.array([0.96713173, -0.5197397])),
+            Polygon(jnp.array([[0.0, 1.0], [-0.5, -0.5], [0.5, -0.5]]))
+        ),
+        (
+            Circle(jnp.array(3.82366), jnp.array([0.89924145, 0.10981558])),
+            Polygon(jnp.array([[0.0, 1.0], [-0.5, -0.5], [0.5, -0.5]]))
+        ),
+        (
+            Circle(jnp.array(3.3993943), jnp.array([-0.5438884, -0.28964934])),
+            Polygon(jnp.array([[0.0, 1.0], [-0.5, -0.5], [0.5, -0.5]]))
+        ),
+        (
+            Circle(jnp.array(1.0), jnp.array([0.0, 0.0])),
+            Polygon(jnp.array([[0.0, 0.9], [2.0, 3.0], [-2.0, 3.0]]))
+        )
+]
+)
+def test_circle_vs_polygon_parametrized(inp):
+    a, b = inp
+
+    assert _test_contact_info(circle_vs_polygon, a, b, debug=False)
+"""
+
+
+def test_circle_vs_polygon_rand():
+    @eqx.filter_jit
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = Circle(
+            position=jr.normal(k1, (2,)),
+            radius=jr.uniform(k2, shape=(), minval=0.05, maxval=5.0),
+        )
+        b = Polygon(jnp.array([[0.0, 1.0], [-0.5, -0.5], [0.5, -0.5]]))
+        val = _test_contact_info(circle_vs_polygon, a, b, **kwargs, small_eps=1e-2)
+        return val
+
+    _test_with_seed(f, jr.PRNGKey(0), N_ratio=0.05)
+
+
+def test_circle_vs_polygon_rand_2():
+    @eqx.filter_jit
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = Circle(
+            position=jr.normal(k1, (2,)),
+            radius=jr.uniform(k2, shape=(), minval=0.05, maxval=5.0),
+        )
+        b = Polygon(jnp.array([[0.5, 0.5], [-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5]]))
+        val = _test_contact_info(circle_vs_polygon, a, b, **kwargs, small_eps=1e-2)
+        return val
+
+    _test_with_seed(f, jr.PRNGKey(1), N_ratio=0.05)
+
+
+@pytest.mark.parametrize(
+    "inp",
+    [
+        (
+            AABB(
+                lower=jnp.array([0.13606448, -2.6069396]),
+                upper=jnp.array([0.39154065, 0.7682829]),
+            ),
+            Polygon(jnp.array([[0.5, 0.5], [-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5]])),
+        ),
+        (
+            AABB(lower=jnp.array([-0.8, -0.8]), upper=jnp.array([-0.4, -0.4])),
+            Polygon(jnp.array([[0.0, 1.0], [-0.5, -0.5], [0.5, -0.5]])),
+        ),
+    ],
+)
+def test_aabb_vs_polygon_parametrized(inp):
+    assert _test_contact_info(aabb_vs_polygon, inp[0], inp[1])
+
+
+def test_aabb_vs_polygon_rand():
+    @eqx.filter_jit
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = AABB(
+            lower=jr.normal(k3, (2,)),
+            upper=jr.normal(k3, (2,))
+            + jr.uniform(k4, shape=(2,), minval=0.01, maxval=5.0),
+        )
+
+        b = Polygon(jnp.array([[0.5, 0.5], [-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5]]))
+        val = _test_contact_info(aabb_vs_polygon, a, b, **kwargs, small_eps=1e-3)
+        return val
+
+    _test_with_seed(f, jr.PRNGKey(2), N_ratio=0.1)
+
+
+def test_aabb_vs_polygon_rand_2():
+    @eqx.filter_jit
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = AABB(
+            lower=jr.normal(k3, (2,)),
+            upper=jr.normal(k3, (2,))
+            + jr.uniform(k4, shape=(2,), minval=0.01, maxval=5.0),
+        )
+
+        b = Polygon(jnp.array([[0.3, 0.556], [-0.1, -0.2], [0.4, -0.3], [-0.8, 1.5]]))
+        val = _test_contact_info(aabb_vs_polygon, a, b, **kwargs, small_eps=1e-3)
+        return val
+
+    _test_with_seed(f, jr.PRNGKey(3), N_ratio=0.1)
+
+
+def test_polygon_vs_polygon_rand():
+    @eqx.filter_jit
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = Polygon(jr.normal(k1, ((3, 2))))
+        b = Polygon(jnp.array([[0.3, 0.556], [-0.1, -0.2], [0.4, -0.3], [-0.8, 1.5]]))
+        val = _test_contact_info(polygon_vs_polygon, a, b, **kwargs, small_eps=1e-3)
+        return val
+
+    _test_with_seed(f, jr.PRNGKey(4), N_ratio=0.1)
+
+
+def test_polygon_vs_polygon_rand_2():
+    @eqx.filter_jit
+    def f(key, **kwargs):
+        k1, k2, k3, k4, key = jr.split(key, 5)
+        a = Polygon(jr.normal(k2, ((6, 2))))
+        b = Polygon(jnp.array([[0.3, 0.556], [-0.1, -0.2], [0.4, -0.3], [-0.8, 1.5]]))
+        val = _test_contact_info(polygon_vs_polygon, a, b, **kwargs, small_eps=1e-3)
+        return val
+
+    _test_with_seed(f, jr.PRNGKey(5), N_ratio=0.1)

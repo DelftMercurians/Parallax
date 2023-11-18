@@ -4,7 +4,7 @@ from jax import numpy as jnp
 from jaxtyping import Array, Float
 
 from ._abstract_shapes import AbstractConvexShape
-from ._geometry_utils import order_clockwise
+from ._geometry_utils import fast_normal, order_clockwise
 
 
 class Circle(AbstractConvexShape, strict=True):
@@ -21,11 +21,12 @@ class Circle(AbstractConvexShape, strict=True):
 
     @jax.jit
     def get_support(self, direction: Float[Array, "2"]):
+        # direction = eqx.error_if(direction, jnp.all(direction == 0.0), "Nope")
         normalized_direction = direction / jnp.linalg.norm(direction)
         return normalized_direction * self.radius + self.position
 
     def contains(self, point, eps=1e-6):
-        return jnp.sum((point - self.position) ** 2) <= (self.radius**2 + eps)
+        return jnp.sum((point - self.position) ** 2) <= ((self.radius + eps) ** 2)
 
     def get_center(self):
         return self.position
@@ -48,6 +49,7 @@ class AABB(AbstractConvexShape, strict=True):
 
     @jax.jit
     def get_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
+        # direction = eqx.error_if(direction, jnp.all(direction == 0.0), "Nope")
         support_point = jnp.where(direction >= 0, self.upper, self.lower)
         return support_point
 
@@ -64,6 +66,19 @@ class AABB(AbstractConvexShape, strict=True):
 
     def get_center(self):
         return (self.lower + self.upper) / 2.0
+
+    def get_edges(self):
+        vs = jnp.array(
+            [
+                self.upper,
+                [self.upper[0], self.lower[1]],
+                self.lower,
+                [self.lower[0], self.upper[1]],
+            ]
+        )
+        return jnp.array(
+            [[vs[0], vs[1]], [vs[1], vs[2]], [vs[2], vs[3]], [vs[3], vs[0]]]
+        )
 
     def contains(self, point, eps=1e-6):
         return jnp.all((point >= self.lower - eps) & (point <= self.upper + eps))
@@ -88,8 +103,27 @@ class Polygon(AbstractConvexShape, strict=True):
         # TODO: error if two vertices
 
     def get_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
+        # direction = eqx.error_if(direction, jnp.all(direction == 0.0), "Nope")
         dot_products = jax.lax.map(lambda x: jnp.dot(x, direction), self.vertices)
-        return self.vertices.at[jnp.argmax(dot_products)].get()
+        return self.vertices[jnp.argmax(dot_products)]
 
     def get_center(self) -> Float[Array, "2"]:
         return jnp.mean(self.vertices, axis=0)
+
+    def get_edges(self):
+        return jnp.concatenate(
+            [self.vertices, jnp.roll(self.vertices, shift=1, axis=0)], axis=1
+        ).reshape((-1, 2, 2))
+
+    def contains(self, point):
+        edges = self.get_edges()
+        dots = jax.lax.map(
+            lambda edge: jnp.dot(point - edges[0], fast_normal(edges[0] - edges[1])),
+            edges,
+        )
+        dots = jnp.sign(dots)
+        return True
+
+    def move(self, delta: Float[Array, "2"]):
+        new_vertices = jax.lax.map(lambda x: x + delta, self.vertices)
+        return Polygon(new_vertices)

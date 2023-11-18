@@ -140,6 +140,8 @@ def _get_closest_minkowski_diff(
 
         def _f1():
             t = jnp.dot(point - b, a - b) / length
+
+            t = jnp.clip(t, 0.0, 1.0)
             projection = b + t * (a - b)
             displacement = point - projection
             return displacement
@@ -147,12 +149,15 @@ def _get_closest_minkowski_diff(
         def _f2():
             return jnp.array([jnp.inf, jnp.inf])
 
-        return jax.lax.cond(length < 1e-14, _f2, _f1)
+        return jax.lax.cond(
+            jnp.all((a == jnp.zeros_like(a)) & (b == jnp.zeros_like(b))), _f2, _f1
+        )
 
     def get_closest_point_on_edge_to_point(a, b, point):
         length = jnp.sum((a - b) ** 2)
 
         t = jnp.dot(point - b, a - b) / length
+        t = jnp.clip(t, 0.0, 1.0)
         projection = b + t * (a - b)
         displacement = point - projection
         return displacement
@@ -166,44 +171,63 @@ def _get_closest_minkowski_diff(
         edge = edges[edge_index]
         return (edge, edge_index)
 
+    @eqx.filter_jit
     def cond_fn(x):
-        last_edge, new_point, _, _, _, prev_edge = x
+        last_edge, new_point, bei, _, edges, prev_edge = x
         # if the edge is really small -> finish
         c1 = jnp.sum((last_edge[0] - last_edge[1]) ** 2) > 1e-9
 
         # we detect when the origins are ordered incorrectly, and stop
         # usually incorrect ordering happens after we hit numerical errors
         # that are big enough to break invariants
-        c2 = jnp.cross(last_edge[0], last_edge[1]) > 0
+        c2 = jnp.cross(last_edge[0], last_edge[1]) >= 0
 
-        normal = fast_normal(prev_edge[0] - prev_edge[1]) / jnp.linalg.norm(
-            prev_edge[0] - prev_edge[1]
-        )
+        normal = fast_normal(prev_edge[0] - prev_edge[1])
+        normal = normal / jnp.linalg.norm(normal)
         d = jnp.dot(new_point, normal)
         edistance = jnp.linalg.norm(
             get_closest_point_on_edge_to_point(
                 prev_edge[0], prev_edge[1], jnp.zeros((2,))
             )
         )
-        edistance *= 1.0 + 1e-6
-        c4 = (edistance < d) | (d <= 0)
+        c4 = (d - edistance > 1e-6) | (d <= 0)
+        """"
+        from matplotlib import pyplot as plt
+        pp = order_clockwise(edges[:, 0, :])
+        pp = list(filter(lambda x: not jnp.all(x == jnp.array([0, 0])), pp))
+        pp.append(pp[0])
+        pp = jnp.array(pp)
+        plt.plot(pp[:, 0], pp[:, 1])
+        e = prev_edge
+        fn = fast_normal(e[0] - e[1])
+        plt.plot([e[1][0], e[1][0] + fn[0]], [e[1][1], e[1][1] + fn[1]], 'r')
+        plt.plot(e[:, 0], e[:, 1], 'g')
+        plt.show()
+        breakpoint()
+        """
         return c4 & ~jnp.any(jnp.isnan(last_edge)) & c1 & c2
 
+    @eqx.filter_jit
     def body_fn(x):
         best_edge, _, best_edge_index, i, edges, _ = x
 
         # now we split edge that is closest to the origin into two,
         # taking the support point along normal as the third point
         normal = fast_normal(best_edge[0] - best_edge[1])
-        normal = normal / (
-            jnp.absolute(normal[0]) + jnp.absolute(normal[1])
-        )  # TODO: remove this renormalization
+        normal = normal / jnp.linalg.norm(normal)  # TODO: remove this renormalization
         new_point = minkowski_diff(a_support_fn, b_support_fn, normal)
-        # lets replace current edge with edge[0], new point:
-        edges = edges.at[best_edge_index].set(jnp.array([best_edge[0], new_point]))
-        # and insert in the end new_point, edge[1]
-        edges = edges.at[i + 3].set(jnp.array([new_point, best_edge[1]]))
 
+        # lets replace current edge with edge[0], new point:
+        a = jnp.array([best_edge[0], new_point])
+        b = jnp.array([new_point, best_edge[1]])
+        cond = (jnp.cross(a[0], a[1]) > 0) & (jnp.cross(b[0], b[1]) > 0)
+
+        def replac(edges):
+            edges = edges.at[best_edge_index].set(a)
+            edges = edges.at[i + 3].set(b)
+            return edges
+
+        edges = jax.lax.cond(~cond, lambda: edges, lambda: replac(edges))
         new_best_edge, new_best_edge_index = get_closest_edge_to_origin(edges)
         return new_best_edge, new_point, new_best_edge_index, i + 1, edges, best_edge
 
@@ -214,15 +238,31 @@ def _get_closest_minkowski_diff(
 
     best_edge, index = get_closest_edge_to_origin(edges)
 
-    best_edge, _, _, _, edges, prev_best_edge = eqx.internal.while_loop(
-        cond_fn,
-        body_fn,
-        (best_edge, simplex[2], index, jnp.array(0), edges, edges[0]),
-        kind="checkpointed",
-        max_steps=solver_iterations,
+    #
+    # with jax.disable_jit():
+    #   best_edge, _, _, _, edges, prev_best_edge = eqx.internal.while_loop(
+    #        cond_fn,
+    #        body_fn,
+    #        (best_edge, simplex[2], index, jnp.array(0), edges, edges[0]),
+    #        kind="checkpointed",
+    #        max_steps=solver_iterations,
+    #    )
+    x = (best_edge, simplex[2], index, jnp.array(0), edges, edges[0])
+    # for i in range(solver_iterations):
+    # if ~cond_fn(x):
+    #    break
+    #    x = jax.lax.cond(cond_fn(x), lambda: body_fn(x), lambda:x)
+    # x = body_fn(x)
+    x, _ = jax.lax.scan(
+        lambda x, _: (jax.lax.cond(cond_fn(x), lambda: body_fn(x), lambda: x), _),
+        x,
+        None,
+        length=solver_iterations,
     )
+    best_edge, _, _, _, edges, prev_best_edge = x
     best_edge = prev_best_edge
-    # return best_point
+
+    best_edge, _ = get_closest_edge_to_origin(edges)  # return best_point
 
     return get_closest_point_on_edge_to_point(
         best_edge[0], best_edge[1], jnp.zeros((2,))
@@ -253,8 +293,10 @@ def check_for_collision_convex(
         jnp.any(jnp.isnan(initial_direction)), rnd, rnd_plus
     )
     simplex = _get_collision_simplex(support_a, support_b, initial_direction)
+    area = jnp.cross(simplex[1] - simplex[0], simplex[2] - simplex[0])
     return jax.lax.cond(
-        jnp.all(simplex == jnp.zeros_like(simplex)) | jnp.any(jnp.isnan(simplex)),
+        jnp.all(simplex == jnp.zeros_like(simplex))
+        | jnp.any(jnp.isnan(simplex) | (area == 0.0)),
         lambda: (False, jnp.nan * simplex),
         lambda: (True, simplex),
     )
