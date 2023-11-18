@@ -154,7 +154,7 @@ def circle_vs_polygon(circle, polygon):
         circle.get_support, polygon.get_support
     )
     penetration_vector = compute_penetration_vector_convex(
-        circle.get_support, polygon.get_support, simplex
+        circle.get_support, polygon.get_support, simplex, 128
     )
 
     # And then we just need to find a contact point. This is easy to do in linear time,
