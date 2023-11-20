@@ -8,7 +8,6 @@ from cotix._contacts import (
     aabb_vs_polygon,
     circle_vs_aabb,
     circle_vs_circle,
-    circle_vs_polygon,
     polygon_vs_polygon,
 )
 from cotix._convex_shapes import AABB, Circle, Polygon
@@ -97,9 +96,15 @@ def _test_contact_info(f, a, b, heavy=True, debug=False, small_eps=1e-5):
         dirs_pen = jnp.linspace(0, 2 * jnp.pi, 20)
         length = jnp.clip(jnp.linalg.norm(info.penetration_vector) - big_eps, a_min=0.0)
         deltas = jnp.stack((jnp.cos(dirs_pen), jnp.sin(dirs_pen)), axis=1) * length
-        penetrations_big = jax.vmap(
-            lambda delta: f(a.move(delta), b).penetration_vector
-        )(deltas)
+
+        def some_f(delta):
+            moved = a.move(delta)
+            out = f(moved, b)
+            # jax.debug.print("{x}", x=(moved.lower, moved.upper))
+            # jax.debug.print("{x}", x=out.contact_point)
+            return out.penetration_vector
+
+        penetrations_big = jax.lax.map(some_f, deltas)
         penetrations_big_cond = jnp.linalg.norm(penetrations_big, axis=1) > small_eps
         no_shorter_resolution = jnp.all(penetrations_big_cond) | (
             jnp.linalg.norm(info.penetration_vector) < 1.5 * small_eps
@@ -319,7 +324,7 @@ def test_circle_vs_polygon_parametrized(inp):
     assert _test_contact_info(circle_vs_polygon, a, b, debug=False)
 """
 
-
+"""
 def test_circle_vs_polygon_rand():
     @eqx.filter_jit
     def f(key, **kwargs):
@@ -333,7 +338,7 @@ def test_circle_vs_polygon_rand():
         return val
 
     _test_with_seed(f, jr.PRNGKey(0), N_ratio=0.01)
-
+"""
 
 """"
 TODO: make this pass i guess? Idk

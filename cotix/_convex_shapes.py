@@ -103,9 +103,12 @@ class Polygon(AbstractConvexShape, strict=True):
         # TODO: error if two vertices
 
     def get_support(self, direction: Float[Array, "2"]) -> Float[Array, "2"]:
-        # direction = eqx.error_if(direction, jnp.all(direction == 0.0), "Nope")
         dot_products = jax.lax.map(lambda x: jnp.dot(x, direction), self.vertices)
-        return self.vertices[jnp.argmax(dot_products)]
+        return jax.lax.cond(
+            jnp.any(jnp.isnan(direction)),
+            lambda: jnp.array([jnp.nan, jnp.nan]),
+            lambda: self.vertices[jnp.argmax(dot_products)],
+        )
 
     def get_center(self) -> Float[Array, "2"]:
         return jnp.mean(self.vertices, axis=0)

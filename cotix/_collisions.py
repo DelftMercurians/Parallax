@@ -144,7 +144,7 @@ def _get_closest_minkowski_diff(
             t = jnp.clip(t, 0.0, 1.0)
             projection = b + t * (a - b)
             displacement = point - projection
-            return displacement
+            return jax.lax.cond(length == 0, lambda: -a, lambda: displacement)
 
         def _f2():
             return jnp.array([jnp.inf, jnp.inf])
@@ -156,24 +156,27 @@ def _get_closest_minkowski_diff(
     def get_closest_point_on_edge_to_point(a, b, point):
         length = jnp.sum((a - b) ** 2)
 
-        t = jnp.dot(point - b, a - b) / length
-        t = jnp.clip(t, 0.0, 1.0)
-        projection = b + t * (a - b)
-        displacement = point - projection
-        return displacement
+        def some_compute():
+            t = jnp.dot(point - b, a - b) / length
+            t = jnp.clip(t, 0.0, 1.0)
+            projection = b + t * (a - b)
+            displacement = point - projection
+            return displacement
+
+        return jax.lax.cond(length == 0.0, lambda: point - a, some_compute)
 
     def distance_to_origin(edge):
         return jnp.sum(displacement_to_origin(edge[0], edge[1]) ** 2)
 
-    def get_closest_edge_to_origin(edges):
-        distances_to_origin = jax.vmap(lambda x: distance_to_origin(x))(edges)
+    def get_closest_edge_to_origin(edges_l):
+        distances_to_origin = jax.vmap(lambda x: distance_to_origin(x))(edges_l)
         edge_index = jnp.argmin(distances_to_origin)
-        edge = edges[edge_index]
+        edge = edges_l[edge_index]
         return (edge, edge_index)
 
     @eqx.filter_jit
     def cond_fn(x):
-        last_edge, new_point, bei, _, edges, prev_edge = x
+        last_edge, new_point, bei, _, edges_l, prev_edge = x
         # if the edge is really small -> finish
         c1 = jnp.sum((last_edge[0] - last_edge[1]) ** 2) > 1e-9
 
@@ -205,11 +208,12 @@ def _get_closest_minkowski_diff(
         plt.show()
         breakpoint()
         """
-        return c4 & ~jnp.any(jnp.isnan(last_edge)) & c1 & c2
+        final_c = c4 & (~jnp.any(jnp.isnan(last_edge))) & c1 & c2
+        return final_c
 
     @eqx.filter_jit
     def body_fn(x):
-        best_edge, _, best_edge_index, i, edges, _ = x
+        best_edge, _, best_edge_index, i, edges_l, _ = x
 
         # now we split edge that is closest to the origin into two,
         # taking the support point along normal as the third point
@@ -220,18 +224,19 @@ def _get_closest_minkowski_diff(
         # lets replace current edge with edge[0], new point:
         a = jnp.array([best_edge[0], new_point])
         b = jnp.array([new_point, best_edge[1]])
-        cond = (jnp.cross(a[0], a[1]) > 0) & (jnp.cross(b[0], b[1]) > 0)
 
-        def replac(edges):
-            edges = edges.at[best_edge_index].set(a)
-            edges = edges.at[i + 3].set(b)
-            return edges
+        def replac(edges_l):
+            edges_l = edges_l.at[best_edge_index].set(a)
+            edges_l = edges_l.at[i + 3].set(b)
+            return edges_l
 
-        edges = jax.lax.cond(~cond, lambda: edges, lambda: replac(edges))
-        new_best_edge, new_best_edge_index = get_closest_edge_to_origin(edges)
-        return new_best_edge, new_point, new_best_edge_index, i + 1, edges, best_edge
+        # jax.debug.print("cond {c}", c=cond)
+        edges_l = replac(edges_l)
 
-    edges = jnp.zeros((solver_iterations, 2, 2))
+        new_best_edge, new_best_edge_index = get_closest_edge_to_origin(edges_l)
+        return new_best_edge, new_point, new_best_edge_index, i + 1, edges_l, best_edge
+
+    edges = jnp.zeros((solver_iterations + 3, 2, 2))
     edges = edges.at[0].set(jnp.array([simplex[0], simplex[1]]))
     edges = edges.at[1].set(jnp.array([simplex[1], simplex[2]]))
     edges = edges.at[2].set(jnp.array([simplex[2], simplex[0]]))
@@ -260,9 +265,9 @@ def _get_closest_minkowski_diff(
         length=solver_iterations,
     )
     best_edge, _, _, _, edges, prev_best_edge = x
-    best_edge = prev_best_edge
 
     best_edge, _ = get_closest_edge_to_origin(edges)  # return best_point
+    # print(edges)
 
     return get_closest_point_on_edge_to_point(
         best_edge[0], best_edge[1], jnp.zeros((2,))
@@ -294,9 +299,14 @@ def check_for_collision_convex(
     )
     simplex = _get_collision_simplex(support_a, support_b, initial_direction)
     area = jnp.cross(simplex[1] - simplex[0], simplex[2] - simplex[0])
-    return jax.lax.cond(
+    c = (
         jnp.all(simplex == jnp.zeros_like(simplex))
-        | jnp.any(jnp.isnan(simplex) | (area == 0.0)),
+        | jnp.any(jnp.isnan(simplex))
+        | (area == 0)
+    )
+    # jax.debug.print("cond {x}", x=(initial_direction, simplex, c))
+    return jax.lax.cond(
+        c,
         lambda: (False, jnp.nan * simplex),
         lambda: (True, simplex),
     )
