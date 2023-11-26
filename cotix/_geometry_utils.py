@@ -62,11 +62,6 @@ def order_clockwise(vertices: Float[Array, "size 2"]) -> Float[Array, "size 2"]:
     Orders a bunch of vertices clockwise around their center of mass.
     """
     relative_vertices = vertices - jnp.mean(vertices, axis=0)
-    relative_vertices = eqx.error_if(
-        relative_vertices,
-        relative_vertices == jnp.zeros((2,)),
-        "Encountered zero in order clockwise, cannot handle for now",
-    )  # TODO: solve this
     angles = jnp.arctan2(relative_vertices[:, 1], relative_vertices[:, 0])
     indices = jnp.argsort(angles, axis=0)
     return vertices[indices]
@@ -83,7 +78,7 @@ def angle_between(v1, v2):
     return jnp.arccos(jnp.clip(jnp.dot(v1_u, v2_u), -1.0, 1.0))
 
 
-class HomogeneousTransformer(eqx.Module, strict=True):
+class HomogenuousTransformer(eqx.Module, strict=True):
     """
     Allows to apply arbitrary affine transformations to passed vectors/directions
     """
@@ -106,7 +101,7 @@ class HomogeneousTransformer(eqx.Module, strict=True):
             ]
         )
 
-        self.inv_matrix = jnp.linalg.pinv(self.matrix)
+        self.inv_matrix = jnp.linalg.inv(self.matrix)
 
     def inverse_direction(self, x):
         """Direction: from global coordinate system to local."""
@@ -131,3 +126,7 @@ class HomogeneousTransformer(eqx.Module, strict=True):
         homo_dir = jnp.array([x[0], x[1], 1.0])
         transformed = self.matrix @ homo_dir
         return jnp.array([transformed[0], transformed[1]]) / transformed[2]
+
+    def shift(self):
+        """Get the shift that is applied when moving from local to global"""
+        return self.matrix[2, :2]

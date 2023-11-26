@@ -3,3 +3,8 @@
 **.vscode
 **.all_objects.cache
 .work-distro
+**/.pytest_cache
+**/.ruff_cache
+**/.ipynb_checkpoints
+venv
+**/.idea

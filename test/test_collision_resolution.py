@@ -3,11 +3,12 @@ from jax import numpy as jnp, random as jr
 from pytest_check import check  # for possible multiple assert failures
 
 from cotix._bodies import AnyBody, Ball
-from cotix._collision_resolution import _resolve_collision, ContactInfo
+from cotix._collision_resolution import resolve_collision
 from cotix._collisions import (
     check_for_collision_convex,
     compute_penetration_vector_convex,
 )
+from cotix._contacts import ContactInfo
 from cotix._convex_shapes import Circle, Polygon
 from cotix._geometry_utils import angle_between
 from cotix._universal_shape import UniversalShape
@@ -35,7 +36,7 @@ def _collision_resolution_helper(body1, body2, contact_point=None):
 
     contact_info = ContactInfo(penetration_before, contact_point)
 
-    body1, body2, extra_info = _resolve_collision(body1, body2, contact_info)
+    body1, body2, extra_info = resolve_collision(body1, body2, contact_info)
 
     # test get global support
     res_collision, simplex = check_for_collision_convex(

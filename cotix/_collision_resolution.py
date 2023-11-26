@@ -12,18 +12,7 @@ from jaxtyping import Array, Float
 from cotix._bodies import AbstractBody
 from cotix._geometry_utils import perpendicular_vector
 
-
-class ContactInfo(eqx.Module):
-    """
-    Additional information about the collision that is expected by _resolve_collision()
-    """
-
-    penetration_vector: Float[Array, "2"]
-    contact_point: Float[Array, "2"]
-
-    def __init__(self, penetration_vector, contact_point):
-        self.penetration_vector = penetration_vector
-        self.contact_point = contact_point
+from ._contacts import ContactInfo
 
 
 class CollisionResolutionExtraInfo(eqx.Module):
@@ -131,7 +120,7 @@ def _compute_lever_arms_and_tangential_velocity(
     return lever_arm1, lever_arm2, tangential_relative_velocity
 
 
-def _resolve_collision(
+def resolve_collision(
     body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
 ) -> Tuple[AbstractBody, AbstractBody, CollisionResolutionExtraInfo]:
     """
@@ -140,6 +129,16 @@ def _resolve_collision(
     Contains a check that closest points of the bodies are moving apart.
       Does nothing if they are.
     """
+    return jax.lax.cond(
+        contact_info.isnan(),
+        lambda: (body1, body2, CollisionResolutionExtraInfo.make_default()),
+        lambda: resolve_collision_notnan(body1, body2, contact_info),
+    )
+
+
+def resolve_collision_notnan(
+    body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
+) -> Tuple[AbstractBody, AbstractBody, CollisionResolutionExtraInfo]:
     penetration_vector = contact_info.penetration_vector
     contact_point = contact_info.contact_point
     elasticity = body1.elasticity * body2.elasticity

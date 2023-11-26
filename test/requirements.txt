@@ -9,3 +9,5 @@ jaxlib>=0.4.18
 
 # testing
 pytest
+pytest-order
+pytest_check
