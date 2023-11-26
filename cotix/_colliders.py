@@ -65,6 +65,9 @@ class NaiveCollider(AbstractCollider):
                     continue
                 for a in body.shape.parts:
                     for b in body2.shape.parts:
+                        a = a.transform(body.shape._transformer)
+                        b = b.transform(body2.shape._transformer)
+
                         type1 = type(a)
                         type2 = type(b)
                         # make sure that the order is the same as in _contact_funcs
@@ -139,15 +142,17 @@ class NaiveCollider(AbstractCollider):
 
             # apply every update recorded in contact_points
             new_all_contact_points, _ = eqx.internal.scan(
-                lambda data_arr, i: jtu.tree_map(
-                    lambda leaf, to_set: leaf.at[
-                        current_contacts[0][i], current_contacts[1][i]
-                    ].set(to_set[i]),
-                    data_arr,
-                    current_contacts[2],
-                    is_leaf=eqx.is_array,
+                lambda data_arr, i: (
+                    jtu.tree_map(
+                        lambda leaf, to_set: leaf.at[
+                            current_contacts[0][i], current_contacts[1][i]
+                        ].set(to_set[i]),
+                        data_arr,
+                        current_contacts[2],
+                        is_leaf=eqx.is_array,
+                    ),
+                    None,
                 ),
-                None,
                 init=all_contacts,
                 xs=jnp.arange(len(current_contacts)),
                 kind="lax",

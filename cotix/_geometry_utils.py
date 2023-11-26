@@ -101,7 +101,7 @@ class HomogenuousTransformer(eqx.Module, strict=True):
             ]
         )
 
-        self.inv_matrix = jnp.linalg.pinv(self.matrix)
+        self.inv_matrix = jnp.linalg.inv(self.matrix)
 
     def inverse_direction(self, x):
         """Direction: from global coordinate system to local."""
@@ -126,3 +126,7 @@ class HomogenuousTransformer(eqx.Module, strict=True):
         homo_dir = jnp.array([x[0], x[1], 1.0])
         transformed = self.matrix @ homo_dir
         return jnp.array([transformed[0], transformed[1]]) / transformed[2]
+
+    def shift(self):
+        """Get the shift that is applied when moving from local to global"""
+        return self.matrix[2, :2]

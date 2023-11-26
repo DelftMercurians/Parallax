@@ -25,14 +25,6 @@ class ExplicitEulerPhysics(AbstractPhysicsSolver, strict=True):
         return new_body
 
     def step(self, bodies, dt=jnp.nan):
-        dt = eqx.error_if(
-            dt,
-            jnp.isnan(dt),
-            "You must provide dt; if you want to use "
-            "adaptive step size - don't. If you have no idea what value "
-            "to put as dt, put 1e-3: probs will be good enough.",
-        )
-
         new_bodies = jtu.tree_map(
             lambda body: self._single_body_step(body, dt=dt),
             bodies,

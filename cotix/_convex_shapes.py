@@ -34,6 +34,12 @@ class Circle(AbstractConvexShape, strict=True):
     def move(self, delta: Float[Array, "2"]):
         return eqx.tree_at(lambda x: x.position, self, self.position + delta)
 
+    def transform(self, transformer):
+        return Circle(
+            radius=self.radius,
+            position=self.position + transformer.shift(),
+        )
+
 
 class AABB(AbstractConvexShape, strict=True):
     """
@@ -88,6 +94,12 @@ class AABB(AbstractConvexShape, strict=True):
         new_self = eqx.tree_at(lambda x: x.lower, new_self, new_self.lower + delta)
         return new_self
 
+    def transform(self, transformer):
+        return AABB(
+            lower=self.lower + transformer.shift(),
+            upper=self.upper + transformer.shift(),
+        )
+
 
 class Polygon(AbstractConvexShape, strict=True):
     """
@@ -130,3 +142,11 @@ class Polygon(AbstractConvexShape, strict=True):
     def move(self, delta: Float[Array, "2"]):
         new_vertices = jax.lax.map(lambda x: x + delta, self.vertices)
         return Polygon(new_vertices)
+
+    def transform(self, transformer):
+        return Polygon(
+            vertices=jax.lax.map(
+                lambda x: x + transformer.shift(),
+                self.vertices,
+            ),
+        )

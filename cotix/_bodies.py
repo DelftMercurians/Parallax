@@ -63,19 +63,25 @@ class AbstractBody(eqx.Module, strict=True):
         """Sets inertia tensor (2d vector) of the body."""
         return eqx.tree_at(lambda x: x.inertia, self, inertia)
 
-    def set_position(self, position: Float[Array, "2"]):
+    def set_position(self, position: Float[Array, "2"], update_transform=True):
         """Sets position of the center of mass of the body."""
         tmp = eqx.tree_at(lambda x: x.position, self, position)
-        return tmp.update_transform()
+        if update_transform:
+            return tmp.update_transform()
+        else:
+            return tmp
 
     def set_velocity(self, velocity: Float[Array, "2"]):
         """Sets velocity of the center of mass of the body."""
         return eqx.tree_at(lambda x: x.velocity, self, velocity)
 
-    def set_angle(self, angle: Float[Array, ""]):
+    def set_angle(self, angle: Float[Array, ""], update_transform=True):
         """Sets the angle of rotation around its center of mass."""
         tmp = eqx.tree_at(lambda x: x.angle, self, angle)
-        return tmp.update_transform()
+        if update_transform:
+            return tmp.update_transform()
+        else:
+            return tmp
 
     def set_angular_velocity(self, angular_velocity: Float[Array, ""]):
         """Sets the rate of change of bodys angle."""
@@ -105,9 +111,9 @@ class AbstractBody(eqx.Module, strict=True):
         return (
             self.set_mass(other.mass)
             .set_inertia(other.inertia)
-            .set_position(other.position)
+            .set_position(other.position, False)
             .set_velocity(other.velocity)
-            .set_angle(other.angle)
+            .set_angle(other.angle, False)
             .set_angular_velocity(other.angular_velocity)
             .set_elasticity(other.elasticity)
             .set_friction_coefficient(other.friction_coefficient)
