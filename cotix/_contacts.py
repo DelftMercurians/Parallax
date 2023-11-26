@@ -20,6 +20,12 @@ class ContactInfo(eqx.Module):
     def nan():
         return ContactInfo(jnp.zeros((2,)), jnp.array([jnp.nan, jnp.nan]))
 
+    def isnan(self):
+        return jnp.any(jnp.isnan(self.contact_point))
+
+    def invert(self):
+        return ContactInfo(-self.penetration_vector, self.contact_point)
+
 
 def circle_vs_circle(a: Circle, b: Circle):
     delta = a.position - b.position

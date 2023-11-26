@@ -1,58 +1,30 @@
-import pytest
-from jax import numpy as jnp
+import equinox as eqx
+import jax
+from jax import numpy as jnp, random as jr
 
-from cotix._bodies import Ball
+from cotix._bodies import AnyBody
 from cotix._colliders import NaiveCollider
 from cotix._convex_shapes import AABB, Circle
 from cotix._universal_shape import UniversalShape
 
 
-@pytest.mark.skip
-def test_simple_world_broad_phase():
-    a = Ball(
-        jnp.array(1.0),
-        jnp.zeros((2,)),
-        UniversalShape(
+def test_simple_world():
+    a = AnyBody(
+        position=jnp.zeros((2,)) + 1e-1,
+        velocity=jnp.array([1.0, 0.0]),
+        shape=UniversalShape(
             Circle(
                 position=jnp.zeros(
                     2,
-                ),
+                )
+                + 1e-1,
                 radius=jnp.array(1.0),
-            ),
-            Circle(
-                position=jnp.zeros(
-                    2,
-                ),
-                radius=jnp.array(1.0),
-            ),
-            Circle(
-                position=jnp.zeros(
-                    2,
-                ),
-                radius=jnp.array(1.0),
-            ),
+            )
         ),
     )
-    b = Ball(
-        jnp.array(1.0),
-        jnp.zeros((2,)),
-        UniversalShape(
-            AABB.of(
-                Circle(
-                    position=jnp.ones(
-                        2,
-                    ),
-                    radius=jnp.array(1.0),
-                )
-            ),
-            AABB.of(
-                Circle(
-                    position=jnp.ones(
-                        2,
-                    ),
-                    radius=jnp.array(1.0),
-                )
-            ),
+    b = AnyBody(
+        position=jnp.ones((2,)),
+        shape=UniversalShape(
             AABB.of(
                 Circle(
                     position=jnp.ones(
@@ -68,78 +40,36 @@ def test_simple_world_broad_phase():
 
     collider = NaiveCollider()
 
-    out = collider.broad_phase(bodies, limit=4)
+    eqx.filter_jit(collider.resolve)(bodies)
 
-    assert out[0].i == 0 and out[0].j == 1  # first collision is detected
-    assert (
-        (out[1].i == -1) and (out[2].i == -1) and (out[3].i == -1)
-    )  # all other collisions are 'empty'
+    assert True
 
 
-@pytest.mark.skip
-def test_simple_world_narrow_phase():
-    a = Ball(
-        jnp.array(1.0),
-        jnp.zeros((2,)),
-        UniversalShape(
-            Circle(
-                position=jnp.zeros(
-                    2,
+def test_a_huge_chunk_of_balls():
+    balls = []
+    for i in range(40):
+        balls.append(
+            AnyBody(
+                position=jnp.zeros((2,)) + 1e-1,
+                velocity=jnp.array([1.0, 0.0]),
+                shape=UniversalShape(
+                    Circle(
+                        position=jr.normal(
+                            jr.PRNGKey(i),
+                            (2,),
+                        ),
+                        radius=jnp.array(0.5),
+                    )
                 ),
-                radius=jnp.array(1.0),
-            ),
-            Circle(
-                position=jnp.zeros(
-                    2,
-                ),
-                radius=jnp.array(1.0),
-            ),
-            Circle(
-                position=jnp.zeros(
-                    2,
-                ),
-                radius=jnp.array(1.0),
-            ),
-        ),
-    )
-    b = Ball(
-        jnp.array(1.0),
-        jnp.zeros((2,)),
-        UniversalShape(
-            AABB.of(
-                Circle(
-                    position=jnp.ones(
-                        2,
-                    ),
-                    radius=jnp.array(1.0),
-                )
-            ),
-            AABB.of(
-                Circle(
-                    position=jnp.ones(
-                        2,
-                    ),
-                    radius=jnp.array(1.0),
-                )
-            ),
-            AABB.of(
-                Circle(
-                    position=jnp.ones(
-                        2,
-                    ),
-                    radius=jnp.array(1.0),
-                )
-            ),
-        ),
-    )
+            )
+        )
 
-    bodies = [a, b]
-
+    jax.config.update("jax_log_compiles", True)
     collider = NaiveCollider()
+    eqx.filter_jit(collider.resolve)(balls)
+    assert True
 
-    out = collider.detect(bodies)
 
-    assert out[0].i == 0 and out[0].j == 1  # first collision is detected
-    assert (
-        (out[1].i == -1) and (out[2].i == -1) and (out[3].i == -1)
-    )  # all other collisions are 'empty'
+if __name__ == "__main__":
+    test_simple_world()
+    test_a_huge_chunk_of_balls()

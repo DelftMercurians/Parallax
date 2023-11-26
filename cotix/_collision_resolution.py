@@ -129,6 +129,16 @@ def resolve_collision(
     Contains a check that closest points of the bodies are moving apart.
       Does nothing if they are.
     """
+    return jax.lax.cond(
+        contact_info.isnan(),
+        lambda: (body1, body2, CollisionResolutionExtraInfo.make_default()),
+        lambda: resolve_collision_notnan(body1, body2, contact_info),
+    )
+
+
+def resolve_collision_notnan(
+    body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
+) -> Tuple[AbstractBody, AbstractBody, CollisionResolutionExtraInfo]:
     penetration_vector = contact_info.penetration_vector
     contact_point = contact_info.contact_point
     elasticity = body1.elasticity * body2.elasticity
