@@ -15,7 +15,7 @@ from jaxtyping import Array, Float
 SupportFn = Callable[[Float[Array, "2"]], Float[Array, "2"]]
 
 
-class AbstractShape(eqx.Module, strict=True):
+class AbstractShape(eqx.Module):
     "blah blah"
 
     @abc.abstractmethod
@@ -53,5 +53,5 @@ class AbstractShape(eqx.Module, strict=True):
         raise NotImplementedError
 
 
-class AbstractConvexShape(AbstractShape, strict=True):
+class AbstractConvexShape(AbstractShape):
     ...

@@ -7,7 +7,7 @@ from ._abstract_shapes import AbstractConvexShape
 from ._geometry_utils import fast_normal, order_clockwise
 
 
-class Circle(AbstractConvexShape, strict=True):
+class Circle(AbstractConvexShape):
     """
     Circular convex shape, has radius and a position.
     """
@@ -40,8 +40,11 @@ class Circle(AbstractConvexShape, strict=True):
             position=self.position + transformer.shift(),
         )
 
+    def draw(self, painter):
+        painter.draw_circle(self.position, self.radius, (128, 128, 128))
 
-class AABB(AbstractConvexShape, strict=True):
+
+class AABB(AbstractConvexShape):
     """
     Axis aligned bounding box described by min and max corner coordinates
     """
@@ -100,8 +103,19 @@ class AABB(AbstractConvexShape, strict=True):
             upper=self.upper + transformer.shift(),
         )
 
+    def draw(self, painter):
+        vs = jnp.array(
+            [
+                self.upper,
+                [self.upper[0], self.lower[1]],
+                self.lower,
+                [self.lower[0], self.upper[1]],
+            ]
+        )
+        painter.draw_polygon(vertices=vs, color=(128, 128, 128))
 
-class Polygon(AbstractConvexShape, strict=True):
+
+class AbstractPolygon(AbstractConvexShape):
     """
     A **convex** polygon that has a bunch of vertices.
     """
@@ -141,12 +155,50 @@ class Polygon(AbstractConvexShape, strict=True):
 
     def move(self, delta: Float[Array, "2"]):
         new_vertices = jax.lax.map(lambda x: x + delta, self.vertices)
-        return Polygon(new_vertices)
+        return type(self)(new_vertices)
 
     def transform(self, transformer):
-        return Polygon(
+        return type(self)(
             vertices=jax.lax.map(
-                lambda x: x + transformer.shift(),
+                lambda x: transformer.forward_vector(x),
                 self.vertices,
             ),
         )
+
+    def draw(self, painter):
+        painter.draw_polygon(self.vertices, (255, 255, 255))
+
+
+class Polygon(AbstractPolygon):
+    vertices: Float[Array, "size 2"]  # ordered clockwise
+
+    def __init__(self, vertices: Float[Array, "size 2"]):
+        self.vertices = order_clockwise(vertices)
+
+
+class Polygon3(AbstractPolygon):
+    vertices: Float[Array, "3 2"]  # ordered clockwise
+
+    def __init__(self, vertices: Float[Array, "3 2"]):
+        self.vertices = order_clockwise(vertices)
+
+
+class Polygon4(AbstractPolygon):
+    vertices: Float[Array, "4 2"]  # ordered clockwise
+
+    def __init__(self, vertices: Float[Array, "4 2"]):
+        self.vertices = order_clockwise(vertices)
+
+
+class Polygon5(AbstractPolygon):
+    vertices: Float[Array, "5 2"]  # ordered clockwise
+
+    def __init__(self, vertices: Float[Array, "5 2"]):
+        self.vertices = order_clockwise(vertices)
+
+
+class Polygon6(AbstractPolygon):
+    vertices: Float[Array, "6 2"]  # ordered clockwise
+
+    def __init__(self, vertices: Float[Array, "6 2"]):
+        self.vertices = order_clockwise(vertices)

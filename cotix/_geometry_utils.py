@@ -129,4 +129,4 @@ class HomogenuousTransformer(eqx.Module, strict=True):
 
     def shift(self):
         """Get the shift that is applied when moving from local to global"""
-        return self.matrix[2, :2]
+        return self.position

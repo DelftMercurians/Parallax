@@ -4,6 +4,7 @@ import pytest
 from jax import numpy as jnp, random as jr, tree_util as jtu
 
 from cotix._contacts import (
+    _contact_from_edges,
     aabb_vs_aabb,
     aabb_vs_polygon,
     circle_vs_aabb,
@@ -13,7 +14,7 @@ from cotix._contacts import (
 from cotix._convex_shapes import AABB, Circle, Polygon
 
 
-MAX_CALLS_PER_VMAP = 1000
+MAX_CALLS_PER_VMAP = 10_000
 TESTS_PER_SCENARIO = 10_000_000
 
 # Firstly, we define two extraordinarly convenient functions for testing invariants
@@ -80,6 +81,17 @@ def _test_contact_info(f, a, b, heavy=True, debug=False, small_eps=1e-5):
         info.contact_point
     )
 
+    # check that we found no intersection from edges
+    # (this is a bit of a hack, but it is a good sanity check)
+    same_edging = True
+    if (type(a) == Polygon or type(a) == AABB) and (
+        type(b) == Polygon or type(b) == AABB
+    ):
+        edges_a = a.get_edges()
+        edges_b = b.get_edges()
+        contact_point = _contact_from_edges(edges_a, edges_b)
+        same_edging = ~jnp.logical_xor(jnp.all(jnp.isnan(contact_point)), info.isnan())
+
     # 'resolve' the collision
     an = a.move(info.penetration_vector)
     new_info = f(an, b)
@@ -100,8 +112,6 @@ def _test_contact_info(f, a, b, heavy=True, debug=False, small_eps=1e-5):
         def some_f(delta):
             moved = a.move(delta)
             out = f(moved, b)
-            # jax.debug.print("{x}", x=(moved.lower, moved.upper))
-            # jax.debug.print("{x}", x=out.contact_point)
             return out.penetration_vector
 
         penetrations_big = jax.lax.map(some_f, deltas)
@@ -138,12 +148,15 @@ def _test_contact_info(f, a, b, heavy=True, debug=False, small_eps=1e-5):
     if debug:
         jax.debug.breakpoint()
 
-    return jnp.any(jnp.isnan(info.contact_point)) | (
-        exist_deep_enough
-        & after_resolution_no_penetration
-        & no_shorter_resolution
-        & contact_point_contained
-    )
+    return (
+        jnp.any(jnp.isnan(info.contact_point))
+        | (
+            exist_deep_enough
+            & after_resolution_no_penetration
+            & no_shorter_resolution
+            & contact_point_contained
+        )
+    ) & same_edging
 
 
 # and the actual tests follow ...

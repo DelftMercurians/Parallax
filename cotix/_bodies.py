@@ -119,6 +119,9 @@ class AbstractBody(eqx.Module, strict=True):
             .set_friction_coefficient(other.friction_coefficient)
         )
 
+    def draw(self, painter):
+        self.shape.draw(painter)
+
 
 class Ball(AbstractBody, strict=True):
     """

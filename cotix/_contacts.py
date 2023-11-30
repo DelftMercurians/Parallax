@@ -202,16 +202,7 @@ def circle_vs_polygon(circle, polygon):
     )
 
 
-def aabb_vs_polygon(aabb, polygon):
-    solver_iterations = min(48, 4 + len(polygon.vertices) + 1)
-    exists, simplex = check_for_collision_convex(aabb.get_support, polygon.get_support)
-
-    penetration_vector = compute_penetration_vector_convex(
-        aabb.get_support, polygon.get_support, simplex, solver_iterations
-    )
-
-    # And then we just need to find a contact point. This is easy to do in linear time,
-    # just look at all the edges one after another
+def _contact_from_edges(edges_a, edges_b):
     def edge_vs_edge(edge_a, edge_b):
         def crs(a, b):
             return a[0] * b[1] - b[0] * a[1]
@@ -233,13 +224,10 @@ def aabb_vs_polygon(aabb, polygon):
             lambda: jnp.array([jnp.nan, jnp.nan]),
         )
 
-    edges_aabb = aabb.get_edges()
-    edges_polygon = polygon.get_edges()
-
     def check_edges_vs_edge(edge):
-        return jax.lax.map(jtu.Partial(edge_vs_edge, edge_b=edge), edges_aabb)
+        return jax.lax.map(jtu.Partial(edge_vs_edge, edge_b=edge), edges_a)
 
-    outer_map = jax.lax.map(check_edges_vs_edge, edges_polygon)
+    outer_map = jax.lax.map(check_edges_vs_edge, edges_b)
 
     outer_map = outer_map.reshape((-1, 2))
 
@@ -248,6 +236,18 @@ def aabb_vs_polygon(aabb, polygon):
         contact_point = jax.lax.cond(
             jnp.any(jnp.isnan(x)), lambda: contact_point, lambda: x
         )
+    return contact_point
+
+
+def aabb_vs_polygon(aabb, polygon):
+    solver_iterations = min(48, 4 + len(polygon.vertices) + 1)
+    exists, simplex = check_for_collision_convex(aabb.get_support, polygon.get_support)
+
+    penetration_vector = compute_penetration_vector_convex(
+        aabb.get_support, polygon.get_support, simplex, solver_iterations
+    )
+
+    contact_point = _contact_from_edges(aabb.get_edges(), polygon.get_edges())
 
     return jax.lax.cond(
         exists,
@@ -264,43 +264,7 @@ def polygon_vs_polygon(poly_a, poly_b):
         poly_a.get_support, poly_b.get_support, simplex, solver_iterations
     )
 
-    # And then we just need to find a contact point. This is easy to do in linear time,
-    # just look at all the edges one after another
-    def edge_vs_edge(edge_a, edge_b):
-        def crs(a, b):
-            return a[0] * b[1] - b[0] * a[1]
-
-        p = edge_a[0]
-        r = edge_a[1] - edge_a[0]
-
-        q = edge_b[0]
-        s = edge_b[1] - edge_b[0]
-
-        c = crs(r, s)
-
-        t = crs((q - p), s) / c
-        u = crs((q - p), r) / c
-
-        return jax.lax.cond(
-            jnp.all(c != 0.0) & (t >= 0.0) & (t <= 1.0) & (u >= 0.0) & (u <= 1.0),
-            lambda: p + r * t,
-            lambda: jnp.array([jnp.nan, jnp.nan]),
-        )
-
-    edges_a = poly_a.get_edges()
-    edges_b = poly_b.get_edges()
-
-    def check_edges_vs_edge(edge):
-        return jax.lax.map(jtu.Partial(edge_vs_edge, edge_b=edge), edges_a)
-
-    outer_map = jax.lax.map(check_edges_vs_edge, edges_b)
-    outer_map = outer_map.reshape((-1, 2))
-
-    contact_point = jnp.array([jnp.nan, jnp.nan])
-    for x in outer_map:
-        contact_point = jax.lax.cond(
-            jnp.any(jnp.isnan(x)), lambda: contact_point, lambda: x
-        )
+    contact_point = _contact_from_edges(poly_a.get_edges(), poly_b.get_edges())
 
     return jax.lax.cond(
         exists,

@@ -68,6 +68,18 @@ class UniversalShape(eqx.Module, strict=True):
             HomogenuousTransformer(angle=angle, position=position),
         )
 
+    def absolute(self):
+        """
+        Returns a new universal shape that is in absolute coordinates
+        """
+        return jtu.tree_map(
+            lambda x: x.transform(self._transformer), self, is_leaf=eqx.is_array
+        )
+
+    def draw(self, painter):
+        for shape in self.parts:
+            shape.transform(self._transformer).draw(painter)
+
     def collides_with(self, other):
         """
         Returns true if we collide with another shape.

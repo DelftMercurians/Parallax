@@ -18,10 +18,9 @@ class ExplicitEulerPhysics(AbstractPhysicsSolver, strict=True):
         new_body = body
 
         new_position = body.position + body.velocity * dt
-        new_angle = body.angle + body.velocity * dt
+        new_angle = body.angle + body.angular_velocity * dt
 
-        new_body = eqx.tree_at(lambda x: x.position, new_body, replace=new_position)
-        new_body = eqx.tree_at(lambda x: x.angle, new_body, replace=new_angle)
+        new_body = new_body.set_position(new_position).set_angle(new_angle)
         return new_body
 
     def step(self, bodies, dt=jnp.nan):
