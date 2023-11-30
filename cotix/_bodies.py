@@ -119,6 +119,9 @@ class AbstractBody(eqx.Module, strict=True):
             .set_friction_coefficient(other.friction_coefficient)
         )
 
+    def draw(self, painter):
+        self.shape.draw(painter)
+
 
 class Ball(AbstractBody, strict=True):
     """
@@ -207,17 +210,17 @@ class DynamicBody(eqx.Module, strict=True):
     friction_coefficient: Float[Array, ""]
 
     def __init__(self, other: AbstractBody):
-        self.mass = other.mass
-        self.inertia = other.inertia
+        self.mass = other.mass.astype(jnp.float32)
+        self.inertia = other.inertia.astype(jnp.float32)
 
-        self.position = other.position
-        self.velocity = other.velocity
+        self.position = other.position.astype(jnp.float32)
+        self.velocity = other.velocity.astype(jnp.float32)
 
-        self.angle = other.angle
-        self.angular_velocity = other.angular_velocity
+        self.angle = other.angle.astype(jnp.float32)
+        self.angular_velocity = other.angular_velocity.astype(jnp.float32)
 
-        self.elasticity = other.elasticity
-        self.friction_coefficient = other.friction_coefficient
+        self.elasticity = other.elasticity.astype(jnp.float32)
+        self.friction_coefficient = other.friction_coefficient.astype(jnp.float32)
 
     def set_mass(self, mass: Float[Array, ""]):
         """Sets the mass (a scalar) of the body."""
@@ -294,17 +297,17 @@ class AnyBody(AbstractBody, strict=True):
         friction_coefficient=jnp.array(1.0),
         shape=None,
     ):
-        self.mass = mass
-        self.inertia = inertia
+        self.mass = mass.astype(jnp.float32)
+        self.inertia = inertia.astype(jnp.float32)
 
-        self.position = position
-        self.velocity = velocity
+        self.position = position.astype(jnp.float32)
+        self.velocity = velocity.astype(jnp.float32)
 
-        self.angle = angle
-        self.angular_velocity = angular_velocity
+        self.angle = angle.astype(jnp.float32)
+        self.angular_velocity = angular_velocity.astype(jnp.float32)
 
-        self.elasticity = elasticity
-        self.friction_coefficient = friction_coefficient
+        self.elasticity = elasticity.astype(jnp.float32)
+        self.friction_coefficient = friction_coefficient.astype(jnp.float32)
 
         self.shape = shape
         self.shape = self.shape.update_transform(

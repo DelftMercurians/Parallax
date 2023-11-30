@@ -168,9 +168,7 @@ def resolve_collision_notnan(
     # check that the collision has to be resolved
     point1_v = body1.velocity + body1.angular_velocity * lever_arm1
     point2_v = body2.velocity + body2.angular_velocity * lever_arm2
-    # todo: this might not work with super concave bodies,
-    #  when the center of mass is on the wrong side of the collision point
-    velocities_away = jnp.dot(point1_v - point2_v, body1.position - body2.position) >= 0
+    velocities_away = jnp.dot(point1_v - point2_v, unit_collision_vector) >= 0
 
     # called iff velocities_away is False
     def continue_resolution(body1, body2):
@@ -200,30 +198,6 @@ def resolve_collision_notnan(
         )
 
         col_impulse = -jnp.array([primary_col_impulse, friction_impulse])
-
-        # jax.debug.print(
-        #     "\nlever arms: {lever_arm1}, {lever_arm2}. \n"
-        #     "center1: {center1}, center2: {center2}. "
-        #     "contact_point: {contact_point}. \n"
-        #     "global_supports {sup1}, {sup2}. "
-        #     "collision_unit_vector {unit_collision_vector}. \n"
-        #     "tangential_relative_velocity: {tangential_relative_velocity}. \n"
-        #     "friction_impulse: {friction_impulse}. \n"
-        #     "col_impulse in new basis: {col_impulse}. \n"
-        #     "col_impulse original: {col_impulse_original}. \n",
-        #     lever_arm1=lever_arm1,
-        #     lever_arm2=lever_arm2,
-        #     center1=body1.get_center_of_mass(),
-        #     center2=body2.get_center_of_mass(),
-        #     contact_point=contact_point,
-        #     sup1=body1.shape.get_global_support(-unit_collision_vector),
-        #     sup2=body2.shape.get_global_support(unit_collision_vector),
-        #     unit_collision_vector=unit_collision_vector,
-        #     tangential_relative_velocity=tangential_relative_velocity,
-        #     friction_impulse=friction_impulse,
-        #     col_impulse=col_impulse,
-        #     col_impulse_original=change_of_basis_inv @ col_impulse,
-        # )
 
         v1_new_col_basis = v1_col_basis + col_impulse / body1.mass
         v2_new_col_basis = v2_col_basis - col_impulse / body2.mass

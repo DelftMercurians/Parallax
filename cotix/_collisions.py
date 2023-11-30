@@ -230,7 +230,6 @@ def _get_closest_minkowski_diff(
             edges_l = edges_l.at[i + 3].set(b)
             return edges_l
 
-        # jax.debug.print("cond {c}", c=cond)
         edges_l = replac(edges_l)
 
         new_best_edge, new_best_edge_index = get_closest_edge_to_origin(edges_l)
@@ -304,7 +303,6 @@ def check_for_collision_convex(
         | jnp.any(jnp.isnan(simplex))
         | (area == 0)
     )
-    # jax.debug.print("cond {x}", x=(initial_direction, simplex, c))
     return jax.lax.cond(
         c,
         lambda: (False, jnp.nan * simplex),
