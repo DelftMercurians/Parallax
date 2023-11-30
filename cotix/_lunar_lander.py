@@ -84,8 +84,8 @@ class LunarLander(eqx.Module, strict=True):
 
         ground = AnyBody(
             position=jnp.array([0.0, -5.0]),
-            mass=jnp.inf,
-            inertia=jnp.inf,
+            mass=jnp.array(jnp.inf),
+            inertia=jnp.array(jnp.inf),
             elasticity=jnp.array(0.1),
             shape=UniversalShape(
                 AABB(jnp.array([-100.0, -2.0]), jnp.array([100.0, 2.0]))

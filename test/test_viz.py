@@ -1,4 +1,5 @@
 import equinox as eqx
+import jax
 import pytest
 from jax import numpy as jnp, random as jr
 
@@ -10,6 +11,7 @@ from cotix._viz import Painter
 
 @pytest.mark.skip
 def test_lunar_lander():
+    jax.config.update("jax_log_compiles", True)
     env = LunarLander()
 
     physics = ExplicitEulerPhysics()
