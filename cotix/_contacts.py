@@ -202,7 +202,7 @@ def circle_vs_polygon(circle, polygon):
     )
 
 
-def _contact_from_edges(edges_a, edges_b):
+def _contact_from_edges(edges_a, vertices_a, in_a, edges_b, vertices_b, in_b):
     def edge_vs_edge(edge_a, edge_b):
         def crs(a, b):
             return a[0] * b[1] - b[0] * a[1]
@@ -227,16 +227,44 @@ def _contact_from_edges(edges_a, edges_b):
     def check_edges_vs_edge(edge):
         return jax.lax.map(jtu.Partial(edge_vs_edge, edge_b=edge), edges_a)
 
-    outer_map = jax.lax.map(check_edges_vs_edge, edges_b)
-
-    outer_map = outer_map.reshape((-1, 2))
-
-    contact_point = jnp.array([jnp.nan, jnp.nan])
-    for x in outer_map:
-        contact_point = jax.lax.cond(
-            jnp.any(jnp.isnan(x)), lambda: contact_point, lambda: x
+    edge_intersections_list = jax.lax.map(check_edges_vs_edge, edges_b)
+    edge_intersections_list = edge_intersections_list.reshape((-1, 2))
+    # now, for every vertex that is inside the other shape, we add it to the avg_sum
+    n = 0.0
+    avg_sum = jnp.zeros((2,))
+    for vertex in vertices_a:
+        cond = in_b(vertex)
+        avg_sum, n = jax.lax.cond(
+            cond,
+            lambda x: (x[0] + vertex, x[1] + 1),
+            lambda x: (x[0], x[1]),
+            (avg_sum, n),
         )
-    return contact_point
+    for vertex in vertices_b:
+        cond = in_a(vertex)
+        avg_sum, n = jax.lax.cond(
+            cond,
+            lambda x: (x[0] + vertex, x[1] + 1),
+            lambda x: (x[0], x[1]),
+            (avg_sum, n),
+        )
+
+    # and, for every edge intersection that is not nan
+    for intersection in edge_intersections_list:
+        cond = jnp.any(jnp.isnan(intersection))
+        avg_sum, n = jax.lax.cond(
+            ~cond,
+            lambda x: (x[0] + intersection, x[1] + 1),
+            lambda x: (x[0], x[1]),
+            (avg_sum, n),
+        )
+
+    # if there are no intersections, we return nan
+    return jax.lax.cond(
+        n > 0.0,
+        lambda: avg_sum / n,
+        lambda: jnp.array([jnp.nan, jnp.nan]),
+    )
 
 
 def aabb_vs_polygon(aabb, polygon):
@@ -247,7 +275,14 @@ def aabb_vs_polygon(aabb, polygon):
         aabb.get_support, polygon.get_support, simplex, solver_iterations
     )
 
-    contact_point = _contact_from_edges(aabb.get_edges(), polygon.get_edges())
+    contact_point = _contact_from_edges(
+        aabb.get_edges(),
+        aabb.get_vertices(),
+        aabb.contains,
+        polygon.get_edges(),
+        polygon.get_vertices(),
+        polygon.contains,
+    )
 
     return jax.lax.cond(
         exists,
@@ -264,7 +299,14 @@ def polygon_vs_polygon(poly_a, poly_b):
         poly_a.get_support, poly_b.get_support, simplex, solver_iterations
     )
 
-    contact_point = _contact_from_edges(poly_a.get_edges(), poly_b.get_edges())
+    contact_point = _contact_from_edges(
+        poly_a.get_edges(),
+        poly_a.get_vertices(),
+        poly_a.contains,
+        poly_b.get_edges(),
+        poly_b.get_vertices(),
+        poly_b.contains,
+    )
 
     return jax.lax.cond(
         exists,

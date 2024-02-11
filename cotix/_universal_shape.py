@@ -76,9 +76,13 @@ class UniversalShape(eqx.Module, strict=True):
             lambda x: x.transform(self._transformer), self, is_leaf=eqx.is_array
         )
 
-    def draw(self, painter):
+    def draw(self, painter, **kwargs):
         for shape in self.parts:
-            shape.transform(self._transformer).draw(painter)
+            shape.transform(self._transformer).draw(painter, **kwargs)
+
+    def drawEdges(self, painter, **kwargs):
+        for shape in self.parts:
+            shape.transform(self._transformer).drawEdges(painter, **kwargs)
 
     def collides_with(self, other):
         """

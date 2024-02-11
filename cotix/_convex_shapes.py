@@ -40,8 +40,11 @@ class Circle(AbstractConvexShape):
             position=self.position + transformer.shift(),
         )
 
-    def draw(self, painter):
-        painter.draw_circle(self.position, self.radius, (128, 128, 128))
+    def draw(self, painter, color=(128, 128, 128)):
+        painter.draw_circle(self.position, self.radius, color)
+
+    def drawEdges(self, painter, color=(128, 128, 128)):
+        raise NotImplementedError
 
 
 class AABB(AbstractConvexShape):
@@ -89,6 +92,16 @@ class AABB(AbstractConvexShape):
             [[vs[0], vs[1]], [vs[1], vs[2]], [vs[2], vs[3]], [vs[3], vs[0]]]
         )
 
+    def get_vertices(self):
+        return jnp.array(
+            [
+                self.upper,
+                [self.upper[0], self.lower[1]],
+                self.lower,
+                [self.lower[0], self.upper[1]],
+            ]
+        )
+
     def contains(self, point, eps=1e-6):
         return jnp.all((point >= self.lower - eps) & (point <= self.upper + eps))
 
@@ -103,8 +116,8 @@ class AABB(AbstractConvexShape):
             upper=self.upper + transformer.shift(),
         )
 
-    def draw(self, painter):
-        vs = jnp.array(
+    def draw(self, painter, color=(128, 128, 128)):
+        jnp.array(
             [
                 self.upper,
                 [self.upper[0], self.lower[1]],
@@ -112,7 +125,12 @@ class AABB(AbstractConvexShape):
                 [self.lower[0], self.upper[1]],
             ]
         )
-        painter.draw_polygon(vertices=vs, color=(128, 128, 128))
+        # painter.draw_polygon(vertices=vs, color=color)
+        self.drawEdges(painter, color)
+
+    def drawEdges(self, painter, color=(128, 128, 128)):
+        for edge in self.get_edges():
+            painter.draw_line(edge[0], edge[1], color)
 
 
 class AbstractPolygon(AbstractConvexShape):
@@ -144,14 +162,17 @@ class AbstractPolygon(AbstractConvexShape):
             [self.vertices, jnp.roll(self.vertices, shift=1, axis=0)], axis=1
         ).reshape((-1, 2, 2))
 
+    def get_vertices(self):
+        return self.vertices
+
     def contains(self, point):
         edges = self.get_edges()
         dots = jax.lax.map(
-            lambda edge: jnp.dot(point - edges[0], fast_normal(edges[0] - edges[1])),
+            lambda edge: jnp.dot(point - edge[0], fast_normal(edge[0] - edge[1])),
             edges,
         )
         dots = jnp.sign(dots)
-        return True
+        return jnp.all(dots == dots[0])
 
     def move(self, delta: Float[Array, "2"]):
         new_vertices = jax.lax.map(lambda x: x + delta, self.vertices)
@@ -165,8 +186,12 @@ class AbstractPolygon(AbstractConvexShape):
             ),
         )
 
-    def draw(self, painter):
-        painter.draw_polygon(self.vertices, (255, 255, 255))
+    def draw(self, painter, color=(255, 255, 255)):
+        self.drawEdges(painter, color)
+
+    def drawEdges(self, painter, color=(255, 255, 255)):
+        for edge in self.get_edges():
+            painter.draw_line(edge[0], edge[1], color)
 
 
 class Polygon(AbstractPolygon):

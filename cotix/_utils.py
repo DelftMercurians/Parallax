@@ -4,6 +4,31 @@ import equinox as eqx
 import jax
 from jax import lax, numpy as jnp, tree_util as jtu
 
+from ._bodies import DynamicBody
+
+
+def lob_to_soa(bodies):
+    """Convert list of bodies to struct-of-arrays representation"""
+    shapeless_bodies = [DynamicBody(body) for body in bodies]
+
+    # now, we need to transform shapeless_bodies to a SOA
+    soa_shapeless = jtu.tree_map(
+        lambda *x: jnp.stack(x), *shapeless_bodies, is_leaf=eqx.is_array
+    )
+    return soa_shapeless
+
+
+def soa_to_lob(bodies, from_soa):
+    """Convert struct-of-arrays representation to list of bodies"""
+    for i in range(len(bodies)):
+        bodies[i] = bodies[i].load(soa_get(from_soa, i)).update_transform()
+    return bodies
+
+
+def soa_get(soa, index):
+    """Get element from struct-of-arrays representation"""
+    return jtu.tree_map(lambda x: x[index], soa, is_leaf=eqx.is_array)
+
 
 @eqx.filter_jit
 def filter_scan(f: Callable, init, xs, *args, **kwargs):
