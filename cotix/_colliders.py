@@ -73,7 +73,7 @@ class NaiveCollider(AbstractCollider):
 
 class RandomizedCollider(AbstractCollider):
     @eqx.filter_jit  # this must be jitted because concrete JAX arrays are not hashable
-    def resolve(self, all_bodies, rkey, collision_callback=lambda x: None):
+    def resolve(self, bodies, rkey, collision_callback=lambda x: None):
         # we are interested in a single contact per body
         # so we are going to join all 'same shape type' collisions with each other
         # so that the compilation time is "small"
@@ -82,17 +82,6 @@ class RandomizedCollider(AbstractCollider):
         # (type1, type2) -> ((all bodies of type1), (all bodies of type2))
         # and then we are going to iterate over it, and for every body index
         # we are going to store the contact info for that body
-
-        # besides we want to ignore non-collidable bodies, that are 'areas'
-        # so we are going to filter them out
-        bodies = []
-        filtered_index_to_index = {}
-        for i, body in enumerate(all_bodies):
-            if body.is_area:
-                continue
-            bodies.append(body)
-            # and also store the backward link to index, for ease of update
-            filtered_index_to_index[len(bodies) - 1] = i
 
         type_to_shapes = {}
         for i, body in enumerate(bodies):
@@ -163,20 +152,16 @@ class RandomizedCollider(AbstractCollider):
                 type1, type2 = type(shape1), type(shape2)
 
                 # if the order is wrong, swap them
-                mul = 1.0
                 if (type1, type2) not in _contact_funcs.keys():
                     type1, type2 = type2, type1
                     shape1, shape2 = shape2, shape1
-                    mul = -1.0
 
                 contacts = _contact_funcs[(type1, type2)](shape1, shape2)
-                contacts = eqx.tree_at(
-                    lambda x: x.penetration_vector,
-                    contacts,
-                    mul * contacts.penetration_vector,
+                return (
+                    i,
+                    j,
+                    jax.lax.cond(i < j, lambda: ContactInfo.nan(), lambda: contacts),
                 )
-
-                return (i, j, contacts)
 
             def shape1_loop(shape1):
                 return eqx.filter_vmap(
@@ -192,6 +177,7 @@ class RandomizedCollider(AbstractCollider):
             # counts how many contacts we have for each pair of bodies
             counts = jnp.zeros((len(bodies), len(bodies)))
 
+            # THIS IS QUADRATIC!
             def sc_2(carry, index, index2=None):
                 index = (index, index2)
                 i = current_contacts[0][index]
@@ -227,6 +213,8 @@ class RandomizedCollider(AbstractCollider):
                     lambda x: x[index], current_contacts[2], is_leaf=eqx.is_array
                 )
                 g_upd_cond = ~real_update.isnan()
+
+                counts[index]
 
                 # we set the contact with probability 1 / (count + 1)
                 p = jnp.array([0.5])
@@ -278,6 +266,7 @@ class RandomizedCollider(AbstractCollider):
                 kind="lax",
             )
             all_contacts = new_all_contact_points
+
         # almost done: now we have a SOA of constacts, and we want to resolve them
         # we are going to choose a random contact that is not nan along the first axis
         # and resolve it
@@ -326,9 +315,7 @@ class RandomizedCollider(AbstractCollider):
 
             soa_i = jtu.tree_map(lambda x: x[i], soa, is_leaf=eqx.is_array)
             soa_j = jtu.tree_map(lambda x: x[j], soa, is_leaf=eqx.is_array)
-            new_soa_i, new_soa_j, info = resolve_collision_jitted(soa_i, soa_j, contact)
-            collision_callback(info)
-
+            new_soa_i, new_soa_j, _ = resolve_collision_jitted(soa_i, soa_j, contact)
             new_soa = jtu.tree_map(
                 lambda soa_leaf, new_value: soa_leaf.at[i].set(new_value),
                 soa,
@@ -353,7 +340,7 @@ class RandomizedCollider(AbstractCollider):
         # and return it
 
         for i in range(len(bodies)):
-            all_bodies[filtered_index_to_index[i]] = (
+            bodies[i] = (
                 bodies[i]
                 .load(jtu.tree_map(lambda x: x[i], out, is_leaf=eqx.is_array))
                 .update_transform()
@@ -361,4 +348,4 @@ class RandomizedCollider(AbstractCollider):
                 # since we want to allow illegal values when loading, e.g. booleans
             )
 
-        return all_bodies
+        return bodies
