@@ -2,7 +2,6 @@ import equinox as eqx
 from jax import numpy as jnp, tree_util as jtu
 
 from ._bodies import AnyBody
-from ._constraints import AbstractConstraint
 from ._convex_shapes import AABB, Circle
 from ._universal_shape import UniversalShape
 
@@ -11,7 +10,6 @@ class RoboCupEnv(eqx.Module):
     bodies: list[AnyBody]
     colors: list[tuple]
     edge_colors: list[tuple]
-    constraints: list[AbstractConstraint]
 
     def __init__(self):
         field_dim = (10.4, 7.4)
@@ -138,8 +136,6 @@ class RoboCupEnv(eqx.Module):
             (0, 128, 255),
             None,
         ]
-
-        self.constraints = []
 
     def draw(self, painter):
         for edge_color, color, body in zip(self.edge_colors, self.colors, self.bodies):

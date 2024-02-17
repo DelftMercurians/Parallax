@@ -2,14 +2,12 @@ import equinox as eqx
 from jax import numpy as jnp
 
 from ._bodies import AnyBody
-from ._constraints import AbstractConstraint, SoftPositionalConstraint
 from ._convex_shapes import AABB, Polygon4, Polygon6
 from ._universal_shape import UniversalShape
 
 
 class LunarLander(eqx.Module, strict=True):
     bodies: list[AnyBody]
-    constraints: list[AbstractConstraint]
 
     def __init__(self):
         LANDER_POLY = [
@@ -115,16 +113,6 @@ class LunarLander(eqx.Module, strict=True):
         )
 
         self.bodies = [lander, right_leg, left_leg, ground]
-
-        self.constraints = [
-            SoftPositionalConstraint(
-                from_bodies=jnp.array([0]),
-                to_bodies=jnp.array([2]),
-                from_bodies_position=jnp.array([[10.0, 10.0]]),
-                to_bodies_position=jnp.array([[0, 0]]),
-                stiffness=jnp.array(0.5),
-            )
-        ]
 
     def draw(self, painter):
         for body in self.bodies:
