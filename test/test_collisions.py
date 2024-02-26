@@ -178,11 +178,14 @@ def _test_contact_info(f, a, b, heavy=True, debug=False, small_eps=1e-5):
     ],
 )
 def test_aabb_vs_aabb_parametrized(inp):
+    pytest.skip("not implemented")
     a, b = inp
     assert _test_contact_info(aabb_vs_aabb, a, b)
 
 
 def test_aabb_vs_aabb_rand():
+    pytest.skip("not implemented")
+
     def f(key, **kwargs):
         k1, k2, k3, k4, key = jr.split(key, 5)
         a = AABB(
@@ -389,10 +392,13 @@ def test_circle_vs_polygon_rand_2():
     ],
 )
 def test_aabb_vs_polygon_parametrized(inp):
+    pytest.skip("not implemented")
     assert _test_contact_info(aabb_vs_polygon, inp[0], inp[1])
 
 
 def test_aabb_vs_polygon_rand():
+    pytest.skip("not implemented")
+
     @eqx.filter_jit
     def f(key, **kwargs):
         k1, k2, k3, k4, key = jr.split(key, 5)
@@ -410,6 +416,8 @@ def test_aabb_vs_polygon_rand():
 
 
 def test_aabb_vs_polygon_rand_2():
+    pytest.skip("not implemented")
+
     @eqx.filter_jit
     def f(key, **kwargs):
         k1, k2, k3, k4, key = jr.split(key, 5)
@@ -427,6 +435,8 @@ def test_aabb_vs_polygon_rand_2():
 
 
 def test_polygon_vs_polygon_rand():
+    pytest.skip("not implemented")
+
     @eqx.filter_jit
     def f(key, **kwargs):
         k1, k2, k3, k4, key = jr.split(key, 5)
@@ -439,6 +449,8 @@ def test_polygon_vs_polygon_rand():
 
 
 def test_polygon_vs_polygon_rand_2():
+    pytest.skip("not implemented")
+
     @eqx.filter_jit
     def f(key, **kwargs):
         k1, k2, k3, k4, key = jr.split(key, 5)

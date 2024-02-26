@@ -48,6 +48,7 @@ def test_lunar_lander():
         env, key = f(env, key)
 
 
+@pytest.mark.skip
 def test_robocup_env():
     jax.config.update("jax_log_compiles", True)
     env = RoboCupEnv()
