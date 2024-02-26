@@ -78,6 +78,16 @@ def angle_between(v1, v2):
     return jnp.arccos(jnp.clip(jnp.dot(v1_u, v2_u), -1.0, 1.0))
 
 
+def rotate(vector, angle_in_rad):
+    mat = jnp.array(
+        [
+            [jnp.cos(angle_in_rad), -jnp.sin(angle_in_rad)],
+            [jnp.sin(angle_in_rad), jnp.cos(angle_in_rad)],
+        ]
+    )
+    return mat @ vector
+
+
 class HomogenuousTransformer(eqx.Module, strict=True):
     """
     Allows to apply arbitrary affine transformations to passed vectors/directions

@@ -19,7 +19,6 @@ def test_lunar_lander():
 
     physics = ExplicitEulerPhysics()
     collider = RandomizedCollider()
-    SimpleConstraintSolver(loops=1)
     painter = Painter()
 
     @eqx.filter_jit
@@ -28,7 +27,7 @@ def test_lunar_lander():
         new_bodies = eqx.tree_at(
             lambda x: x[0].velocity,
             new_bodies,
-            new_bodies[0].velocity + jnp.array([0.0, -0.001]),
+            new_bodies[0].velocity + jnp.array([0.0, -0.002]),
         )
 
         def draw_log(log):
@@ -39,6 +38,8 @@ def test_lunar_lander():
         # new_bodies = constraintSolver.solve(new_bodies, env.constraints)
         key, next_key = jr.split(key)
         env = eqx.tree_at(lambda x: x.bodies, env, new_bodies)
+        env = env.step()
+
         env.draw(painter)
         return env, key
 

@@ -65,6 +65,14 @@ def resolve_collision(
     )
 
 
+def apply_impulse(body, impulse, point):
+    arm = point - body.get_center_of_mass()
+    torque = jnp.cross(arm, impulse)
+    new_vel = body.velocity + impulse / body.mass
+    new_ang_vel = body.angular_velocity + torque / body.inertia
+    return body.set_velocity(new_vel).set_angular_velocity(new_ang_vel)
+
+
 def resolve_collision_notnan(
     body1: AbstractBody, body2: AbstractBody, contact_info: ContactInfo
 ) -> Tuple[AbstractBody, AbstractBody, CollisionResolutionExtraInfo]:
@@ -94,7 +102,7 @@ def resolve_collision_notnan(
         contact_point_relative_velocity, normal_direction
     )
 
-    baumgarte_term = 0.1
+    baumgarte_term = 0.3
     elasticity = jnp.minimum(body1.elasticity, body2.elasticity)
     r1 = contact_point - body1.get_center_of_mass()
     r2 = contact_point - body2.get_center_of_mass()
@@ -126,30 +134,17 @@ def resolve_collision_notnan(
 
     impulse_vec = impulse_vec + impulse_d_vec
 
-    torque1 = jnp.cross(r1, impulse_vec)
-    torque2 = jnp.cross(r2, impulse_vec)
-
-    # apply impulse
-    new_velocity1 = body1.velocity - impulse_vec / body1.mass
-    new_velocity2 = body2.velocity + impulse_vec / body2.mass
-    new_angular_velocity1 = body1.angular_velocity - torque1 / body1.inertia
-    new_angular_velocity2 = body2.angular_velocity + torque2 / body2.inertia
-
     # condition to apply new impulses:
-    #   if the bodies are moving apart, do nothing
+    # if the bodies are moving apart, do nothing
     cond = jnp.dot(contact_info.penetration_vector, contact_point_relative_velocity) < 0
-
-    new_body1 = body1.set_velocity(new_velocity1).set_angular_velocity(
-        new_angular_velocity1
-    )
-    new_body2 = body2.set_velocity(new_velocity2).set_angular_velocity(
-        new_angular_velocity2
-    )
 
     new_body1, new_body2 = jax.lax.cond(
         cond,
         lambda: (body1, body2),
-        lambda: (new_body1, new_body2),
+        lambda: (
+            apply_impulse(body1, -impulse_vec, contact_point),
+            apply_impulse(body2, impulse_vec, contact_point),
+        ),
     )
     col = CollisionResolutionExtraInfo.make_default()
     col = eqx.tree_at(lambda x: x.contact_point, col, contact_point.astype(jnp.float32))

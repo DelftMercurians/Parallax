@@ -8,6 +8,7 @@ import jax.numpy as jnp
 from equinox import AbstractVar
 from jaxtyping import Array, Float
 
+from ._geometry_utils import perpendicular_vector
 from ._universal_shape import UniversalShape
 
 
@@ -44,6 +45,13 @@ class AbstractBody(eqx.Module, strict=True):
             lambda x: x.shape,
             self,
             self.shape.update_transform(angle=self.angle, position=self.position),
+        )
+
+    def velocity_at(self, point):
+        return (
+            self.velocity
+            + perpendicular_vector(point - self.get_center_of_mass())
+            * self.angular_velocity
         )
 
     def collides_with(self, other):
