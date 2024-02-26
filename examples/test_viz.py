@@ -55,17 +55,15 @@ def test_robocup_env():
 
     physics = ExplicitEulerPhysics()
     collider = RandomizedCollider()
-    constraintSolver = SimpleConstraintSolver(loops=1)
+    SimpleConstraintSolver(loops=1)
     painter = Painter()
 
-    @eqx.filter_jit
     def f(env, key):
         new_bodies, aux = physics.step(env.bodies, dt=1e-2)
         new_bodies = collider.resolve(new_bodies, key)
-        new_bodies = constraintSolver.solve(new_bodies, env.constraints)
         key, next_key = jr.split(key)
         env = eqx.tree_at(lambda x: x.bodies, env, new_bodies)
-        painter.draw_env(env)
+        env.draw(painter)
         return env, key
 
     key = jr.PRNGKey(0)
@@ -74,4 +72,4 @@ def test_robocup_env():
 
 
 if __name__ == "__main__":
-    test_lunar_lander()
+    test_robocup_env()

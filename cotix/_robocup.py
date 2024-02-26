@@ -8,8 +8,6 @@ from ._universal_shape import UniversalShape
 
 class RoboCupEnv(eqx.Module):
     bodies: list[AnyBody]
-    colors: list[tuple]
-    edge_colors: list[tuple]
 
     def __init__(self):
         field_dim = (10.4, 7.4)
@@ -98,7 +96,7 @@ class RoboCupEnv(eqx.Module):
         )
 
         # the next is playable area. This one is about out zones and stuff, blah blah
-        play_area_body = AnyBody(
+        AnyBody(
             shape=UniversalShape(play_area_shape),
             mass=jnp.array(jnp.inf),
             position=jnp.zeros((2,)),
@@ -109,7 +107,7 @@ class RoboCupEnv(eqx.Module):
         )
 
         # in addition, let's add a ball
-        ball_body = AnyBody(
+        AnyBody(
             shape=UniversalShape(
                 Circle(position=jnp.zeros((2,)), radius=jnp.array(ball_radius) * 3)
             ),
@@ -121,30 +119,9 @@ class RoboCupEnv(eqx.Module):
             elasticity=jnp.array(1.0),
         )
 
-        self.bodies = [
-            field_body,
-            play_area_body,
-            yellow_goal_body,
-            blue_goal_body,
-            ball_body,
-        ]
-
-        # field is green, etc etc
-        self.colors = [(0, 180, 0)] * 2 + [(255, 255, 0), (0, 128, 255), (255, 0, 0)]
-        self.edge_colors = [(255, 255, 255)] * 2 + [
-            (255, 255, 0),
-            (0, 128, 255),
-            None,
-        ]
+        self.bodies = [field_body, yellow_goal_body, blue_goal_body]
 
     def draw(self, painter):
-        for edge_color, color, body in zip(self.edge_colors, self.colors, self.bodies):
-            shape = body.shape
-            if color is not None:
-                shape.draw(painter, color=color)
-            else:
-                shape.draw(painter)
-
-            if edge_color is not None:
-                shape.drawEdges(painter, color=edge_color)
+        for body in self.bodies:
+            body.draw(painter)
         painter.next()
