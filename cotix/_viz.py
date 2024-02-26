@@ -71,7 +71,5 @@ class Painter(eqx.Module, strict=True):
     def next(self):
         jax.debug.callback(_painter.next)
 
-    def draw(self, state):
-        for body in state:
-            body.draw(self)
-        self.next()
+    def draw_env(self, env):
+        env.draw(self)

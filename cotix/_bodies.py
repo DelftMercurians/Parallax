@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from equinox import AbstractVar
 from jaxtyping import Array, Float
 
-from ._convex_shapes import Circle
+from ._geometry_utils import perpendicular_vector
 from ._universal_shape import UniversalShape
 
 
@@ -17,6 +17,8 @@ class AbstractBody(eqx.Module, strict=True):
     An abstract Body, every implementation of the body must inherit from this class.
     Contains some common implemntations/properties.
     """
+
+    is_area: AbstractVar[bool]
 
     mass: AbstractVar[Float[Array, ""]]
     inertia: AbstractVar[Float[Array, ""]]
@@ -43,6 +45,13 @@ class AbstractBody(eqx.Module, strict=True):
             lambda x: x.shape,
             self,
             self.shape.update_transform(angle=self.angle, position=self.position),
+        )
+
+    def velocity_at(self, point):
+        return (
+            self.velocity
+            + perpendicular_vector(point - self.get_center_of_mass())
+            * self.angular_velocity
         )
 
     def collides_with(self, other):
@@ -123,11 +132,12 @@ class AbstractBody(eqx.Module, strict=True):
         self.shape.draw(painter)
 
 
-class Ball(AbstractBody, strict=True):
+class AnyBody(AbstractBody, strict=True):
     """
-    Represents any ball, but intended to be a
-    representation of the one and only Robocup Ball.
+    A body with any shape. Useful for tests.
     """
+
+    is_area: bool = eqx.field(static=True)
 
     mass: Float[Array, ""]
     inertia: Float[Array, ""]
@@ -143,51 +153,37 @@ class Ball(AbstractBody, strict=True):
 
     shape: UniversalShape
 
-    def __init__(self, mass, position, velocity, shape):
-        # check that the shape is a circle
-        if not (isinstance(shape.parts[0], Circle) and len(shape.parts) == 1):
-            raise ValueError("Ball universal shape must be a circle")
+    def __init__(
+        self,
+        mass=jnp.array(1.0),
+        inertia=jnp.array(1.0),
+        position=jnp.zeros((2,)),
+        velocity=jnp.zeros((2,)),
+        angle=jnp.zeros(()),
+        angular_velocity=jnp.zeros(()),
+        elasticity=jnp.array(1.0),
+        friction_coefficient=jnp.array(1.0),
+        is_area=False,
+        shape=None,
+    ):
+        self.mass = mass.astype(jnp.float32)
+        self.inertia = inertia.astype(jnp.float32)
 
-        self.mass = mass
-        self.inertia = (
-            2 * (mass * shape.parts[0].radius ** 2) / 5
-        )  # inertia of a solid ball
+        self.position = position.astype(jnp.float32)
+        self.velocity = velocity.astype(jnp.float32)
 
-        self.position = position
-        self.velocity = velocity
+        self.angle = angle.astype(jnp.float32)
+        self.angular_velocity = angular_velocity.astype(jnp.float32)
 
-        self.angle = jnp.array(0.0)
-        self.angular_velocity = jnp.array(0.0)
+        self.elasticity = elasticity.astype(jnp.float32)
+        self.friction_coefficient = friction_coefficient.astype(jnp.float32)
 
-        self.elasticity = jnp.array(1.0)
-        self.friction_coefficient = jnp.array(1.0)
+        self.is_area = is_area
 
         self.shape = shape
         self.shape = self.shape.update_transform(
             angle=self.angle, position=self.position
         )
-
-    @staticmethod
-    def make_default():
-        """
-        Constructs the official Robocup Ball.
-        """
-        ball = Ball(
-            jnp.array(1.0),
-            jnp.zeros((2,)),
-            jnp.zeros((2,)),
-            UniversalShape(Circle(jnp.array(0.05), jnp.zeros((2,)))),
-        )
-        ball = (
-            ball.set_mass(jnp.array(1.0))
-            .set_inertia(jnp.array(1.0))
-            .set_position(jnp.zeros((2,)))
-            .set_velocity(jnp.zeros((2,)))
-            .set_angle(jnp.array(0.0))
-            .set_angular_velocity(jnp.array(0.0))
-            .set_shape(UniversalShape(Circle(jnp.array(0.05), jnp.zeros((2,)))))
-        )
-        return ball
 
 
 class DynamicBody(eqx.Module, strict=True):
@@ -209,7 +205,18 @@ class DynamicBody(eqx.Module, strict=True):
     elasticity: Float[Array, ""]
     friction_coefficient: Float[Array, ""]
 
-    def __init__(self, other: AbstractBody):
+    def __init__(self, other: AbstractBody = None):
+        if other is None:
+            self.mass = jnp.array(1.0).astype(jnp.float32)
+            self.inertia = jnp.array(1.0).astype(jnp.float32)
+            self.position = jnp.zeros((2,)).astype(jnp.float32)
+            self.velocity = jnp.zeros((2,)).astype(jnp.float32)
+            self.angle = jnp.zeros(()).astype(jnp.float32)
+            self.angular_velocity = jnp.zeros(()).astype(jnp.float32)
+            self.elasticity = jnp.array(1.0).astype(jnp.float32)
+            self.friction_coefficient = jnp.array(1.0).astype(jnp.float32)
+            return
+
         self.mass = other.mass.astype(jnp.float32)
         self.inertia = other.inertia.astype(jnp.float32)
 
@@ -264,52 +271,3 @@ class DynamicBody(eqx.Module, strict=True):
 
     def set_friction_coefficient(self, friction_coefficient: Float[Array, ""]):
         return eqx.tree_at(lambda x: x.friction_coefficient, self, friction_coefficient)
-
-
-class AnyBody(AbstractBody, strict=True):
-    """
-    A body with any shape. Useful for tests.
-    """
-
-    mass: Float[Array, ""]
-    inertia: Float[Array, ""]
-
-    position: Float[Array, "2"]
-    velocity: Float[Array, "2"]
-
-    angle: Float[Array, ""]
-    angular_velocity: Float[Array, ""]
-
-    elasticity: Float[Array, ""]
-    friction_coefficient: Float[Array, ""]
-
-    shape: UniversalShape
-
-    def __init__(
-        self,
-        mass=jnp.array(1.0),
-        inertia=jnp.array(1.0),
-        position=jnp.zeros((2,)),
-        velocity=jnp.zeros((2,)),
-        angle=jnp.zeros(()),
-        angular_velocity=jnp.zeros(()),
-        elasticity=jnp.array(1.0),
-        friction_coefficient=jnp.array(1.0),
-        shape=None,
-    ):
-        self.mass = mass.astype(jnp.float32)
-        self.inertia = inertia.astype(jnp.float32)
-
-        self.position = position.astype(jnp.float32)
-        self.velocity = velocity.astype(jnp.float32)
-
-        self.angle = angle.astype(jnp.float32)
-        self.angular_velocity = angular_velocity.astype(jnp.float32)
-
-        self.elasticity = elasticity.astype(jnp.float32)
-        self.friction_coefficient = friction_coefficient.astype(jnp.float32)
-
-        self.shape = shape
-        self.shape = self.shape.update_transform(
-            angle=self.angle, position=self.position
-        )

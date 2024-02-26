@@ -73,7 +73,7 @@ class NaiveCollider(AbstractCollider):
 
 class RandomizedCollider(AbstractCollider):
     @eqx.filter_jit  # this must be jitted because concrete JAX arrays are not hashable
-    def resolve(self, bodies, rkey):
+    def resolve(self, bodies, rkey, collision_callback=lambda x: None):
         # we are interested in a single contact per body
         # so we are going to join all 'same shape type' collisions with each other
         # so that the compilation time is "small"
